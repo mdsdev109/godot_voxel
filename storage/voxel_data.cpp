@@ -5,6 +5,7 @@
 #include "../util/string/format.h"
 #include "../util/thread/mutex.h"
 #include "metadata/voxel_metadata_variant.h"
+#include "voxel_buffer_gd.h"
 #include "voxel_data_grid.h"
 
 namespace zylann::voxel {
@@ -115,6 +116,25 @@ void VoxelData::set_generator(Ref<VoxelGenerator> generator) {
 	_generator = generator;
 }
 
+VoxelFormat VoxelData::get_format() const {
+	MutexLock rlock(_settings_mutex);
+	return _format;
+}
+
+void VoxelData::set_format(const VoxelFormat format) {
+	MutexLock rlock(_settings_mutex);
+	if (format == _format) {
+		return;
+	}
+	// CAREFUL: Changing format usually means reloading the whole data. Even if we lock settings, it is preferable to do
+	// this change while no background task is running.
+	_format = format;
+	for (Lod &lod : _lods) {
+		lod.map.set_format(_format);
+	}
+	reset_maps_no_settings_lock();
+}
+
 void VoxelData::set_stream(Ref<VoxelStream> stream) {
 	MutexLock wlock(_settings_mutex);
 	_stream = stream;
@@ -141,7 +161,7 @@ inline VoxelSingleValue get_voxel_sv(VoxelBuffer &vb, Vector3i pos, unsigned int
 
 // TODO Piggyback on `copy`? The implementation is quite complex, and it's not supposed to be an efficient use case
 VoxelSingleValue VoxelData::get_voxel(Vector3i pos, unsigned int channel_index, VoxelSingleValue defval) const {
-	ZN_PROFILE_SCOPE();
+	// ZN_PROFILE_SCOPE();
 
 	if (!_bounds_in_voxels.contains(pos)) {
 		return defval;
@@ -165,11 +185,13 @@ VoxelSingleValue VoxelData::get_voxel(Vector3i pos, unsigned int channel_index, 
 			Ref<VoxelGenerator> generator = get_generator();
 			if (generator.is_valid()) {
 				VoxelSingleValue value = generator->generate_single(pos, channel_index);
+#ifdef VOXEL_ENABLE_MODIFIERS
 				if (channel_index == VoxelBuffer::CHANNEL_SDF) {
 					float sdf = value.f;
 					_modifiers.apply(sdf, to_vec3f(pos));
 					value.f = sdf;
 				}
+#endif
 				return value;
 			}
 		} else {
@@ -207,11 +229,13 @@ VoxelSingleValue VoxelData::get_voxel(Vector3i pos, unsigned int channel_index, 
 					// TODO We should be able to get a value if modifiers are used but not a base generator
 					if (generator.is_valid()) {
 						VoxelSingleValue value = generator->generate_single(pos, channel_index);
+#ifdef VOXEL_ENABLE_MODIFIERS
 						if (channel_index == VoxelBuffer::CHANNEL_SDF) {
 							float sdf = value.f;
 							_modifiers.apply(sdf, to_vec3f(pos));
 							value.f = sdf;
 						}
+#endif
 						return value;
 					} else {
 						return defval;
@@ -254,8 +278,9 @@ bool VoxelData::try_set_voxel(uint64_t value, Vector3i pos, unsigned int channel
 		if (generator.is_valid()) {
 			VoxelGenerator::VoxelQueryData q{ *voxels, block_pos_lod0 << get_block_size_po2(), 0 };
 			generator->generate_block(q);
-
+#ifdef VOXEL_ENABLE_MODIFIERS
 			_modifiers.apply(q.voxel_buffer, AABB(q.origin_in_voxels, q.voxel_buffer.get_size()));
+#endif
 		}
 
 		RWLockWrite wlock(data_lod0.map_lock);
@@ -280,7 +305,12 @@ bool VoxelData::try_set_voxel_f(real_t value, Vector3i pos, unsigned int channel
 	return try_set_voxel(snorm_to_s16(value), pos, channel_index);
 }
 
-void VoxelData::copy(Vector3i min_pos, VoxelBuffer &dst_buffer, unsigned int channels_mask) const {
+void VoxelData::copy(
+		const Vector3i min_pos,
+		VoxelBuffer &dst_buffer,
+		const unsigned int channels_mask,
+		const bool with_metadata
+) const {
 	ZN_PROFILE_SCOPE();
 
 #ifdef DEBUG_ENABLED
@@ -291,9 +321,15 @@ void VoxelData::copy(Vector3i min_pos, VoxelBuffer &dst_buffer, unsigned int cha
 #endif
 
 	const Lod &data_lod0 = _lods[0];
+#ifdef VOXEL_ENABLE_MODIFIERS
 	const VoxelModifierStack &modifiers = _modifiers;
+#endif
 
 	Ref<VoxelGenerator> generator = get_generator();
+
+	// We could have assumed the passed buffer already has the right format, but that would require changing a lot more
+	// places
+	get_format().configure_buffer(dst_buffer);
 
 	const Box3i blocks_box = Box3i(min_pos, dst_buffer.get_size()).downscaled(data_lod0.map.get_block_size());
 	SpatialLock3D::Read srlock(data_lod0.spatial_lock, BoxBounds3i(blocks_box));
@@ -302,16 +338,22 @@ void VoxelData::copy(Vector3i min_pos, VoxelBuffer &dst_buffer, unsigned int cha
 		RWLockRead rlock(data_lod0.map_lock);
 		// Only gets blocks we have voxel data of. Other blocks will be air.
 		// TODO Modifiers?
-		data_lod0.map.copy(min_pos, dst_buffer, channels_mask);
+		data_lod0.map.copy(min_pos, dst_buffer, channels_mask, with_metadata);
 
 	} else {
 		struct GenContext {
 			VoxelGenerator &generator;
+#ifdef VOXEL_ENABLE_MODIFIERS
 			const VoxelModifierStack &modifiers;
+#endif
 			Box3i voxel_bounds;
 		};
 
-		GenContext gctx{ **generator, modifiers, _bounds_in_voxels };
+		GenContext gctx{ **generator,
+#ifdef VOXEL_ENABLE_MODIFIERS
+						 modifiers,
+#endif
+						 _bounds_in_voxels };
 
 		// Note, when streaming is enabled and this intersects non-loaded areas, they will fallback on the generator.
 		// That's technically not correct as we don't really know what these areas should contain, they could have been
@@ -334,19 +376,24 @@ void VoxelData::copy(Vector3i min_pos, VoxelBuffer &dst_buffer, unsigned int cha
 						// across multiple chunks, so we don't have to check for every intersecting chunk
 						return;
 					}
+					ZN_PROFILE_SCOPE_NAMED("Generate");
 					VoxelGenerator::VoxelQueryData q{ voxels, pos, 0 };
 					gctx2->generator.generate_block(q);
+#ifdef VOXEL_ENABLE_MODIFIERS
 					gctx2->modifiers.apply(voxels, AABB(pos, voxels.get_size()));
-				}
+#endif
+				},
+				with_metadata
 		);
 	}
 }
 
 void VoxelData::paste(
-		Vector3i min_pos,
+		const Vector3i min_pos,
 		const VoxelBuffer &src_buffer,
-		unsigned int channels_mask,
-		bool create_new_blocks
+		const unsigned int channels_mask,
+		const bool create_new_blocks,
+		const bool with_metadata
 ) {
 	ZN_PROFILE_SCOPE();
 
@@ -358,11 +405,11 @@ void VoxelData::paste(
 	if (create_new_blocks) {
 		// We will modify the hashmap so no other threads can perform lookups while we do that
 		RWLockWrite wlock(data_lod0.map_lock);
-		data_lod0.map.paste(min_pos, src_buffer, channels_mask, create_new_blocks);
+		data_lod0.map.paste(min_pos, src_buffer, channels_mask, create_new_blocks, with_metadata);
 	} else {
 		// We won't modify the hashmap so other threads can still perform lookups in different areas
 		RWLockRead rlock(data_lod0.map_lock);
-		data_lod0.map.paste(min_pos, src_buffer, channels_mask, create_new_blocks);
+		data_lod0.map.paste(min_pos, src_buffer, channels_mask, create_new_blocks, with_metadata);
 	}
 }
 
@@ -381,83 +428,91 @@ void VoxelData::paste_masked(
 	const Box3i blocks_box = Box3i(min_pos, src_buffer.get_size()).downscaled(data_lod0.map.get_block_size());
 	SpatialLock3D::Write swlock(data_lod0.spatial_lock, BoxBounds3i(blocks_box));
 
+	const bool with_metadata = true;
+
 	if (create_new_blocks) {
 		// We will modify the hashmap so no other threads can perform lookups while we do that
 		RWLockWrite wlock(data_lod0.map_lock);
-		data_lod0.map.paste_masked( //
-				min_pos, //
-				src_buffer, //
-				channels_mask, //
-				true, //
-				mask_channel, //
-				mask_value, //
+		data_lod0.map.paste_masked(
+				min_pos,
+				src_buffer,
+				channels_mask,
+				true,
+				mask_channel,
+				mask_value,
 				false, // Unused dst mask
-				0, //
-				Span<const int32_t>(), //
-				create_new_blocks //
+				0,
+				Span<const int32_t>(),
+				create_new_blocks,
+				with_metadata
 		);
 	} else {
 		// We won't modify the hashmap so other threads can still perform lookups in different areas
 		RWLockRead rlock(data_lod0.map_lock);
-		data_lod0.map.paste_masked( //
-				min_pos, //
-				src_buffer, //
-				channels_mask, //
-				true, //
-				mask_channel, //
-				mask_value, //
+		data_lod0.map.paste_masked(
+				min_pos,
+				src_buffer,
+				channels_mask,
+				true,
+				mask_channel,
+				mask_value,
 				false, // Unused dst mask
-				0, //
-				Span<const int32_t>(), //
-				create_new_blocks //
+				0,
+				Span<const int32_t>(),
+				create_new_blocks,
+				with_metadata
 		);
 	}
 }
 
-void VoxelData::paste_masked_writable_list( //
-		Vector3i min_pos, //
-		const VoxelBuffer &src_buffer, //
-		unsigned int channels_mask, //
-		uint8_t src_mask_channel, //
-		uint64_t src_mask_value, //
-		uint8_t dst_mask_channel, //
-		Span<const int32_t> dst_writable_values, //
-		bool create_new_blocks //
+void VoxelData::paste_masked_writable_list(
+		Vector3i min_pos,
+		const VoxelBuffer &src_buffer,
+		unsigned int channels_mask,
+		uint8_t src_mask_channel,
+		uint64_t src_mask_value,
+		uint8_t dst_mask_channel,
+		Span<const int32_t> dst_writable_values,
+		bool create_new_blocks
 ) {
 	Lod &data_lod0 = _lods[0];
 
 	const Box3i blocks_box = Box3i(min_pos, src_buffer.get_size()).downscaled(data_lod0.map.get_block_size());
 	SpatialLock3D::Write swlock(data_lod0.spatial_lock, BoxBounds3i(blocks_box));
 
+	const bool with_metadata = true;
+
 	if (create_new_blocks) {
 		// We will modify the hashmap so no other threads can perform lookups while we do that
 		RWLockWrite wlock(data_lod0.map_lock);
-		data_lod0.map.paste_masked( //
-				min_pos, //
-				src_buffer, //
-				channels_mask, //
-				true, //
-				src_mask_channel, //
-				src_mask_value, //
-				true, //
-				dst_mask_channel, //
-				dst_writable_values, //
-				create_new_blocks //
+		data_lod0.map.paste_masked(
+				min_pos,
+				src_buffer,
+				channels_mask,
+				true,
+				src_mask_channel,
+				src_mask_value,
+				true,
+				dst_mask_channel,
+				dst_writable_values,
+				create_new_blocks,
+				with_metadata
 		);
 	} else {
 		// We won't modify the hashmap so other threads can still perform lookups in different areas
 		RWLockRead rlock(data_lod0.map_lock);
-		data_lod0.map.paste_masked( //
-				min_pos, //
-				src_buffer, //
-				channels_mask, //
-				true, //
-				src_mask_channel, //
-				src_mask_value, //
-				true, //
-				dst_mask_channel, //
-				dst_writable_values, //
-				create_new_blocks //
+		data_lod0.map.paste_masked(
+				min_pos,
+				src_buffer,
+				channels_mask,
+				true,
+				src_mask_channel,
+				src_mask_value,
+				true,
+				dst_mask_channel,
+				dst_writable_values,
+				create_new_blocks,
+				with_metadata
 		);
 	}
 }
@@ -491,7 +546,10 @@ void VoxelData::pre_generate_box(
 		bool streaming,
 		unsigned int lod_count,
 		Ref<VoxelGenerator> generator,
-		VoxelModifierStack &modifiers
+#ifdef VOXEL_ENABLE_MODIFIERS
+		VoxelModifierStack &modifiers,
+#endif
+		const VoxelFormat format
 ) {
 	// This is mostly used by VoxelLodTerrain, in cases non-edited blocks aren't cached.
 
@@ -557,8 +615,7 @@ void VoxelData::pre_generate_box(
 	for (unsigned int i = 0; i < todo.size(); ++i) {
 		Task &task = todo[i];
 		task.voxels = make_shared_instance<VoxelBuffer>(VoxelBuffer::ALLOCATOR_POOL);
-		task.voxels->create(block_size);
-		// TODO Format?
+		task.voxels->create(block_size, &format);
 		if (generator.is_valid()) {
 			ZN_PROFILE_SCOPE_NAMED("Generate");
 			VoxelGenerator::VoxelQueryData q{ //
@@ -567,7 +624,9 @@ void VoxelData::pre_generate_box(
 											  task.lod_index
 			};
 			generator->generate_block(q);
+#ifdef VOXEL_ENABLE_MODIFIERS
 			modifiers.apply(q.voxel_buffer, AABB(q.origin_in_voxels, q.voxel_buffer.get_size() << q.lod));
+#endif
 		}
 	}
 
@@ -607,7 +666,18 @@ void VoxelData::pre_generate_box(Box3i voxel_box) {
 	const unsigned int data_block_size = get_block_size();
 	const bool streaming = is_streaming_enabled();
 	const unsigned int lod_count = get_lod_count();
-	pre_generate_box(voxel_box, to_span(_lods), data_block_size, streaming, lod_count, get_generator(), _modifiers);
+	pre_generate_box(
+			voxel_box,
+			to_span(_lods),
+			data_block_size,
+			streaming,
+			lod_count,
+			get_generator(),
+#ifdef VOXEL_ENABLE_MODIFIERS
+			_modifiers,
+#endif
+			get_format()
+	);
 }
 
 void VoxelData::clear_cached_blocks_in_voxel_area(Box3i p_voxel_box) {
@@ -817,8 +887,11 @@ void VoxelData::update_lods(Span<const Vector3i> modified_lod0_blocks, StdVector
 						uint8_t dst_lod_index,
 						int data_block_size,
 						int data_block_size_po2,
-						Ref<VoxelGenerator> generator,
+						Ref<VoxelGenerator> generator
+#ifdef VOXEL_ENABLE_MODIFIERS
+						,
 						const VoxelModifierStack &modifiers
+#endif
 				) {
 					//
 					std::shared_ptr<VoxelBuffer> voxels =
@@ -833,9 +906,11 @@ void VoxelData::update_lods(Span<const Vector3i> modified_lod0_blocks, StdVector
 						ZN_PROFILE_SCOPE_NAMED("Generate");
 						generator->generate_block(q);
 					}
+#ifdef VOXEL_ENABLE_MODIFIERS
 					modifiers.apply(
 							q.voxel_buffer, AABB(q.origin_in_voxels, q.voxel_buffer.get_size() << dst_lod_index)
 					);
+#endif
 
 					return voxels;
 				}
@@ -846,7 +921,15 @@ void VoxelData::update_lods(Span<const Vector3i> modified_lod0_blocks, StdVector
 					// TODO Doing this on the main thread can be very demanding and cause a stall.
 					// We should find a way to make it asynchronous, not need mips, or not edit outside viewers area.
 					std::shared_ptr<VoxelBuffer> voxels = L::generate_voxels(
-							dst_bpos, dst_lod_index, data_block_size, data_block_size_po2, generator, _modifiers
+							dst_bpos,
+							dst_lod_index,
+							data_block_size,
+							data_block_size_po2,
+							generator
+#ifdef VOXEL_ENABLE_MODIFIERS
+							,
+							_modifiers
+#endif
 					);
 
 					{
@@ -879,7 +962,15 @@ void VoxelData::update_lods(Span<const Vector3i> modified_lod0_blocks, StdVector
 				// The destination block is loaded but wasn't caching voxels. We'll need to generate them in order to
 				// update it.
 				std::shared_ptr<VoxelBuffer> voxels = L::generate_voxels(
-						dst_bpos, dst_lod_index, data_block_size, data_block_size_po2, generator, _modifiers
+						dst_bpos,
+						dst_lod_index,
+						data_block_size,
+						data_block_size_po2,
+						generator
+#ifdef VOXEL_ENABLE_MODIFIERS
+						,
+						_modifiers
+#endif
 				);
 				dst_block->set_voxels(voxels);
 			}
@@ -1210,9 +1301,9 @@ void VoxelData::set_voxel_metadata(Vector3i pos, Variant meta) {
 	// TODO Ability to have metadata in areas where voxels have not been allocated?
 	// Otherwise we have to generate the block, because that's where it is stored at the moment.
 	ZN_ASSERT_RETURN_MSG(block->has_voxels(), "Area not cached");
-	VoxelMetadata *meta_storage = block->get_voxels().get_or_create_voxel_metadata(lod.map.to_local(pos));
-	ZN_ASSERT_RETURN(meta_storage != nullptr);
-	godot::set_as_variant(*meta_storage, meta);
+	VoxelBuffer &vb = block->get_voxels();
+	const Vector3i rpos = lod.map.to_local(pos);
+	zylann::voxel::godot::set_voxel_metadata(vb, rpos, meta);
 }
 
 Variant VoxelData::get_voxel_metadata(Vector3i pos) {
@@ -1226,11 +1317,9 @@ Variant VoxelData::get_voxel_metadata(Vector3i pos) {
 	VoxelDataBlock *block = lod.map.get_block(bpos);
 	ZN_ASSERT_RETURN_V_MSG(block != nullptr, Variant(), "Area not editable");
 	ZN_ASSERT_RETURN_V_MSG(block->has_voxels(), Variant(), "Area not cached");
-	const VoxelMetadata *meta = block->get_voxels_const().get_voxel_metadata(lod.map.to_local(pos));
-	if (meta == nullptr) {
-		return Variant();
-	}
-	return godot::get_as_variant(*meta);
+	const VoxelBuffer &vb = block->get_voxels_const();
+	const Vector3i rpos = lod.map.to_local(pos);
+	return zylann::voxel::godot::get_voxel_metadata(vb, rpos);
 }
 
 } // namespace zylann::voxel

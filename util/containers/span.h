@@ -54,6 +54,8 @@ public:
 		return Span<T>(_ptr + from, _size - from);
 	}
 
+	// Reinterprets the data as a span of a different type. The returned span may have a different number of elements,
+	// but the memory area must be the same number of bytes.
 	template <typename U>
 	Span<U> reinterpret_cast_to() const {
 		const size_t size_in_bytes = _size * sizeof(T);
@@ -107,6 +109,9 @@ public:
 	template <typename TDst>
 	inline void copy_to(Span<TDst> other) const {
 		ZN_ASSERT(other.size() == _size);
+		if (_size == 0) {
+			return;
+		}
 		ZN_ASSERT(other.data() != nullptr);
 		// for (size_t i = 0; i < _size; ++i) {
 		// 	other._ptr[i] = _ptr[i];
@@ -219,6 +224,11 @@ Span<T> to_span(std::array<T, N> &a, unsigned int count) {
 template <typename T, size_t N>
 Span<T> to_span(std::array<T, N> &a) {
 	return Span<T>(a.data(), a.size());
+}
+
+template <typename T, size_t N>
+Span<const T> to_span(const std::array<T, N> &a) {
+	return Span<const T>(a.data(), a.size());
 }
 
 // TODO Deprecate, now Span has a conversion constructor that can allow doing that

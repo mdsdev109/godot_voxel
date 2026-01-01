@@ -17,7 +17,13 @@ public:
 
 	// VoxelTool methods
 
-	void copy(Vector3i pos, VoxelBuffer &dst, uint8_t channels_mask) const override;
+	void copy(
+			const Vector3i pos,
+			VoxelBuffer &dst,
+			const uint8_t channels_mask,
+			const bool with_metadata
+	) const override;
+
 	void paste(Vector3i pos, const VoxelBuffer &src, uint8_t channels_mask) override;
 
 	void paste_masked(
@@ -41,6 +47,9 @@ public:
 	bool is_area_editable(const Box3i &box) const override;
 
 	void do_path(Span<const Vector3> positions, Span<const float> radii) override;
+
+	void set_voxel_metadata(Vector3i pos, Variant meta) override;
+	Variant get_voxel_metadata(Vector3i pos) const override;
 
 	// TODO Implement more methods
 

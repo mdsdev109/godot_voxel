@@ -84,6 +84,7 @@ size_t get_geometry_cache_estimated_size_in_bytes(const VoxelMeshMap<VoxelMeshBl
 
 void copy_navigation_mesh_settings(NavigationMesh &dst, const NavigationMesh &src) {
 	dst.set_agent_height(src.get_agent_height());
+	dst.set_spherical(src.get_spherical());
 	dst.set_agent_max_climb(src.get_agent_max_climb());
 	dst.set_agent_max_slope(src.get_agent_max_slope());
 	// TODO `get_agent_radius` is not `const` due to an oversight in Godot
@@ -144,7 +145,7 @@ Ref<NavigationMeshSourceGeometryData3D> gather_geometry(const VoxelTerrain &terr
 			}
 		});
 
-#ifdef DEV_ENABLED
+#ifdef DEBUG_ENABLED
 		{
 			ZN_PROFILE_SCOPE_NAMED("Size estimation");
 			const size_t cache_size = get_geometry_cache_estimated_size_in_bytes(mesh_map);
@@ -222,8 +223,7 @@ Ref<NavigationMeshSourceGeometryData3D> gather_geometry(const VoxelTerrain &terr
 		navmesh_source_data.instantiate();
 		// Directly set vertices, don't use any of the other methods, they do more work and aren't specialized to our
 		// case
-		navmesh_source_data->set_vertices(vertices);
-		navmesh_source_data->set_indices(indices);
+		navmesh_source_data->append_arrays(vertices, indices);
 	}
 
 	return navmesh_source_data;
@@ -232,6 +232,8 @@ Ref<NavigationMeshSourceGeometryData3D> gather_geometry(const VoxelTerrain &terr
 } // namespace
 
 VoxelTerrainNavigation::VoxelTerrainNavigation() {
+	ZN_PRINT_VERBOSE("Construct VoxelLodTerrainNavigation");
+	
 	// TODO Eventually get rid of this node and use the server directly
 	_navigation_region = memnew(NavigationRegion3D);
 	// Turn edge connections off for now, it's very slow on large terrains and creates "sync errors" due to the wild
@@ -241,6 +243,11 @@ VoxelTerrainNavigation::VoxelTerrainNavigation() {
 
 	update_processing_state();
 }
+
+VoxelTerrainNavigation::~VoxelTerrainNavigation() {
+	ZN_PRINT_VERBOSE("Destroy VoxelTerrainNavigation");
+}
+
 
 void VoxelTerrainNavigation::set_enabled(bool p_enabled) {
 	_enabled = p_enabled;
@@ -441,7 +448,7 @@ void VoxelTerrainNavigation::get_configuration_warnings(PackedStringArray &warni
 		// NavigationMesh doesn't emit the `changed` signal when its properties are changed.
 		const real_t default_cell_size = 0.25;
 		const real_t default_cell_height = 0.25;
-		if (!Math::is_equal_approx(_template_navmesh->get_cell_size(), default_cell_size)) {
+		if (!Math::is_equal_approx((double)_template_navmesh->get_cell_size(), (double)default_cell_size)) {
 			warnings.append(String("{0} template cell_size has been modified. It won't be used: {1} automatically sets "
 								   "it to the "
 								   "map's cell size when baking.")
@@ -450,7 +457,7 @@ void VoxelTerrainNavigation::get_configuration_warnings(PackedStringArray &warni
 												   VoxelTerrainNavigation::get_class_static())
 									));
 		}
-		if (!Math::is_equal_approx(_template_navmesh->get_cell_height(), default_cell_height)) {
+		if (!Math::is_equal_approx((double)_template_navmesh->get_cell_height(), (double)default_cell_height)) {
 			warnings.append(String("{0} template cell_height has been modified. It won't be used: {1} automatically "
 								   "sets it to the "
 								   "map's cell height when baking.")
@@ -483,7 +490,7 @@ void VoxelTerrainNavigation::_bind_methods() {
 			&VoxelTerrainNavigation::debug_get_regions_visible_in_editor
 	);
 	ClassDB::bind_method(
-			D_METHOD("debug_set_regions_visible_in_editor", "enabled"),
+			D_METHOD("debug_set_regions_visible_in_editor", "debug_regions_visible_in_editor"),
 			&VoxelTerrainNavigation::debug_set_regions_visible_in_editor
 	);
 

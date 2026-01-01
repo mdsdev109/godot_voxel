@@ -11,47 +11,48 @@ Renders large terrain using variable level of details. This is preferably used w
 ## Properties: 
 
 
-Type                                                                            | Name                                                                                               | Default                                                                               
-------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_layer](#i_collision_layer)                                                              | 1                                                                                     
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_lod_count](#i_collision_lod_count)                                                      | 0                                                                                     
-[float](https://docs.godotengine.org/en/stable/classes/class_float.html)        | [collision_margin](#i_collision_margin)                                                            | 0.04                                                                                  
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_mask](#i_collision_mask)                                                                | 1                                                                                     
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_update_delay](#i_collision_update_delay)                                                | 0                                                                                     
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_active_mesh_blocks](#i_debug_draw_active_mesh_blocks)                                  | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_active_visual_and_collision_blocks](#i_debug_draw_active_visual_and_collision_blocks)  | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_edit_boxes](#i_debug_draw_edit_boxes)                                                  | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_edited_blocks](#i_debug_draw_edited_blocks)                                            | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_enabled](#i_debug_draw_enabled)                                                        | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_loaded_visual_and_collision_blocks](#i_debug_draw_loaded_visual_and_collision_blocks)  | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_mesh_updates](#i_debug_draw_mesh_updates)                                              | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_modifier_bounds](#i_debug_draw_modifier_bounds)                                        | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_octree_bounds](#i_debug_draw_octree_bounds)                                            | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_octree_nodes](#i_debug_draw_octree_nodes)                                              | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_shadow_occluders](#i_debug_draw_shadow_occluders)                                      | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_viewer_clipboxes](#i_debug_draw_viewer_clipboxes)                                      | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_volume_bounds](#i_debug_draw_volume_bounds)                                            | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [full_load_mode_enabled](#i_full_load_mode_enabled)                                                | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [generate_collisions](#i_generate_collisions)                                                      | true                                                                                  
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [lod_count](#i_lod_count)                                                                          | 4                                                                                     
-[float](https://docs.godotengine.org/en/stable/classes/class_float.html)        | [lod_distance](#i_lod_distance)                                                                    | 48.0                                                                                  
-[float](https://docs.godotengine.org/en/stable/classes/class_float.html)        | [lod_fade_duration](#i_lod_fade_duration)                                                          | 0.0                                                                                   
-[Material](https://docs.godotengine.org/en/stable/classes/class_material.html)  | [material](#i_material)                                                                            |                                                                                       
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [mesh_block_size](#i_mesh_block_size)                                                              | 16                                                                                    
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [normalmap_begin_lod_index](#i_normalmap_begin_lod_index)                                          | 2                                                                                     
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [normalmap_enabled](#i_normalmap_enabled)                                                          | false                                                                                 
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [normalmap_max_deviation_degrees](#i_normalmap_max_deviation_degrees)                              | 60                                                                                    
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [normalmap_octahedral_encoding_enabled](#i_normalmap_octahedral_encoding_enabled)                  | false                                                                                 
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [normalmap_tile_resolution_max](#i_normalmap_tile_resolution_max)                                  | 8                                                                                     
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [normalmap_tile_resolution_min](#i_normalmap_tile_resolution_min)                                  | 4                                                                                     
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [normalmap_use_gpu](#i_normalmap_use_gpu)                                                          | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [run_stream_in_editor](#i_run_stream_in_editor)                                                    | true                                                                                  
-[float](https://docs.godotengine.org/en/stable/classes/class_float.html)        | [secondary_lod_distance](#i_secondary_lod_distance)                                                | 48.0                                                                                  
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [streaming_system](#i_streaming_system)                                                            | 0                                                                                     
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [threaded_update_enabled](#i_threaded_update_enabled)                                              | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [use_gpu_generation](#i_use_gpu_generation)                                                        | false                                                                                 
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [view_distance](#i_view_distance)                                                                  | 512                                                                                   
-[AABB](https://docs.godotengine.org/en/stable/classes/class_aabb.html)          | [voxel_bounds](#i_voxel_bounds)                                                                    | AABB(-5.36871e+08, -5.36871e+08, -5.36871e+08, 1.07374e+09, 1.07374e+09, 1.07374e+09) 
+Type                                                                            | Name                                                                                               | Default                                                                      
+------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -----------------------------------------------------------------------------
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [cache_generated_blocks](#i_cache_generated_blocks)                                                | false                                                                        
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_layer](#i_collision_layer)                                                              | 1                                                                            
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_lod_count](#i_collision_lod_count)                                                      | 0                                                                            
+[float](https://docs.godotengine.org/en/stable/classes/class_float.html)        | [collision_margin](#i_collision_margin)                                                            | 0.04                                                                         
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_mask](#i_collision_mask)                                                                | 1                                                                            
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_update_delay](#i_collision_update_delay)                                                | 0                                                                            
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_active_mesh_blocks](#i_debug_draw_active_mesh_blocks)                                  | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_active_visual_and_collision_blocks](#i_debug_draw_active_visual_and_collision_blocks)  | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_edit_boxes](#i_debug_draw_edit_boxes)                                                  | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_edited_blocks](#i_debug_draw_edited_blocks)                                            | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_enabled](#i_debug_draw_enabled)                                                        | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_loaded_visual_and_collision_blocks](#i_debug_draw_loaded_visual_and_collision_blocks)  | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_mesh_updates](#i_debug_draw_mesh_updates)                                              | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_modifier_bounds](#i_debug_draw_modifier_bounds)                                        | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_octree_bounds](#i_debug_draw_octree_bounds)                                            | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_octree_nodes](#i_debug_draw_octree_nodes)                                              | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_shadow_occluders](#i_debug_draw_shadow_occluders)                                      | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_viewer_clipboxes](#i_debug_draw_viewer_clipboxes)                                      | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_volume_bounds](#i_debug_draw_volume_bounds)                                            | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [full_load_mode_enabled](#i_full_load_mode_enabled)                                                | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [generate_collisions](#i_generate_collisions)                                                      | true                                                                         
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [lod_count](#i_lod_count)                                                                          | 4                                                                            
+[float](https://docs.godotengine.org/en/stable/classes/class_float.html)        | [lod_distance](#i_lod_distance)                                                                    | 48.0                                                                         
+[float](https://docs.godotengine.org/en/stable/classes/class_float.html)        | [lod_fade_duration](#i_lod_fade_duration)                                                          | 0.0                                                                          
+[Material](https://docs.godotengine.org/en/stable/classes/class_material.html)  | [material](#i_material)                                                                            |                                                                              
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [mesh_block_size](#i_mesh_block_size)                                                              | 16                                                                           
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [normalmap_begin_lod_index](#i_normalmap_begin_lod_index)                                          | 2                                                                            
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [normalmap_enabled](#i_normalmap_enabled)                                                          | false                                                                        
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [normalmap_max_deviation_degrees](#i_normalmap_max_deviation_degrees)                              | 60                                                                           
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [normalmap_octahedral_encoding_enabled](#i_normalmap_octahedral_encoding_enabled)                  | false                                                                        
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [normalmap_tile_resolution_max](#i_normalmap_tile_resolution_max)                                  | 8                                                                            
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [normalmap_tile_resolution_min](#i_normalmap_tile_resolution_min)                                  | 4                                                                            
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [normalmap_use_gpu](#i_normalmap_use_gpu)                                                          | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [run_stream_in_editor](#i_run_stream_in_editor)                                                    | true                                                                         
+[float](https://docs.godotengine.org/en/stable/classes/class_float.html)        | [secondary_lod_distance](#i_secondary_lod_distance)                                                | 48.0                                                                         
+[StreamingSystem](VoxelLodTerrain.md#enumerations)                              | [streaming_system](#i_streaming_system)                                                            | STREAMING_SYSTEM_LEGACY_OCTREE (0)                                           
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [threaded_update_enabled](#i_threaded_update_enabled)                                              | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [use_gpu_generation](#i_use_gpu_generation)                                                        | false                                                                        
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [view_distance](#i_view_distance)                                                                  | 512                                                                          
+[AABB](https://docs.godotengine.org/en/stable/classes/class_aabb.html)          | [voxel_bounds](#i_voxel_bounds)                                                                    | AABB(-536870900, -536870900, -536870900, 1073741800, 1073741800, 1073741800) 
 <p></p>
 
 ## Methods: 
@@ -62,25 +63,25 @@ Return                                                                          
 [int](https://docs.godotengine.org/en/stable/classes/class_int.html)                | [debug_dump_as_scene](#i_debug_dump_as_scene) ( [String](https://docs.godotengine.org/en/stable/classes/class_string.html) path, [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html) include_instancer ) const                     
 [int](https://docs.godotengine.org/en/stable/classes/class_int.html)                | [debug_get_data_block_count](#i_debug_get_data_block_count) ( ) const                                                                                                                                                                                 
 [Dictionary](https://docs.godotengine.org/en/stable/classes/class_dictionary.html)  | [debug_get_data_block_info](#i_debug_get_data_block_info) ( [Vector3](https://docs.godotengine.org/en/stable/classes/class_vector3.html) block_pos, [int](https://docs.godotengine.org/en/stable/classes/class_int.html) lod ) const                  
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)              | [debug_get_draw_flag](#i_debug_get_draw_flag) ( [int](https://docs.godotengine.org/en/stable/classes/class_int.html) flag_index ) const                                                                                                               
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)              | [debug_get_draw_flag](#i_debug_get_draw_flag) ( [DebugDrawFlag](VoxelLodTerrain.md#enumerations) flag_index ) const                                                                                                                                   
 [int](https://docs.godotengine.org/en/stable/classes/class_int.html)                | [debug_get_mesh_block_count](#i_debug_get_mesh_block_count) ( ) const                                                                                                                                                                                 
 [Dictionary](https://docs.godotengine.org/en/stable/classes/class_dictionary.html)  | [debug_get_mesh_block_info](#i_debug_get_mesh_block_info) ( [Vector3](https://docs.godotengine.org/en/stable/classes/class_vector3.html) block_pos, [int](https://docs.godotengine.org/en/stable/classes/class_int.html) lod ) const                  
 [Array](https://docs.godotengine.org/en/stable/classes/class_array.html)            | [debug_get_octrees_detailed](#i_debug_get_octrees_detailed) ( ) const                                                                                                                                                                                 
 [Array](https://docs.godotengine.org/en/stable/classes/class_array.html)            | [debug_print_sdf_top_down](#i_debug_print_sdf_top_down) ( [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html) center, [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html) extents )             
 [Array](https://docs.godotengine.org/en/stable/classes/class_array.html)            | [debug_raycast_mesh_block](#i_debug_raycast_mesh_block) ( [Vector3](https://docs.godotengine.org/en/stable/classes/class_vector3.html) origin, [Vector3](https://docs.godotengine.org/en/stable/classes/class_vector3.html) dir ) const               
-[void](#)                                                                           | [debug_set_draw_flag](#i_debug_set_draw_flag) ( [int](https://docs.godotengine.org/en/stable/classes/class_int.html) flag_index, [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html) enabled )                                     
+[void](#)                                                                           | [debug_set_draw_flag](#i_debug_set_draw_flag) ( [DebugDrawFlag](VoxelLodTerrain.md#enumerations) flag_index, [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html) enabled )                                                         
 [int](https://docs.godotengine.org/en/stable/classes/class_int.html)                | [get_data_block_region_extent](#i_get_data_block_region_extent) ( ) const                                                                                                                                                                             
 [int](https://docs.godotengine.org/en/stable/classes/class_int.html)                | [get_data_block_size](#i_get_data_block_size) ( ) const                                                                                                                                                                                               
 [VoxelGenerator](VoxelGenerator.md)                                                 | [get_normalmap_generator_override](#i_get_normalmap_generator_override) ( ) const                                                                                                                                                                     
 [int](https://docs.godotengine.org/en/stable/classes/class_int.html)                | [get_normalmap_generator_override_begin_lod_index](#i_get_normalmap_generator_override_begin_lod_index) ( ) const                                                                                                                                     
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)                | [get_process_callback](#i_get_process_callback) ( ) const                                                                                                                                                                                             
+[ProcessCallback](VoxelLodTerrain.md#enumerations)                                  | [get_process_callback](#i_get_process_callback) ( ) const                                                                                                                                                                                             
 [Dictionary](https://docs.godotengine.org/en/stable/classes/class_dictionary.html)  | [get_statistics](#i_get_statistics) ( ) const                                                                                                                                                                                                         
 [VoxelTool](VoxelTool.md)                                                           | [get_voxel_tool](#i_get_voxel_tool) ( )                                                                                                                                                                                                               
 [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)              | [is_area_meshed](#i_is_area_meshed) ( [AABB](https://docs.godotengine.org/en/stable/classes/class_aabb.html) area_in_voxels, [int](https://docs.godotengine.org/en/stable/classes/class_int.html) lod_index ) const                                   
 [VoxelSaveCompletionTracker](VoxelSaveCompletionTracker.md)                         | [save_modified_blocks](#i_save_modified_blocks) ( )                                                                                                                                                                                                   
 [void](#)                                                                           | [set_normalmap_generator_override](#i_set_normalmap_generator_override) ( [VoxelGenerator](VoxelGenerator.md) generator_override )                                                                                                                    
 [void](#)                                                                           | [set_normalmap_generator_override_begin_lod_index](#i_set_normalmap_generator_override_begin_lod_index) ( [int](https://docs.godotengine.org/en/stable/classes/class_int.html) lod_index )                                                            
-[void](#)                                                                           | [set_process_callback](#i_set_process_callback) ( [int](https://docs.godotengine.org/en/stable/classes/class_int.html) mode )                                                                                                                         
+[void](#)                                                                           | [set_process_callback](#i_set_process_callback) ( [ProcessCallback](VoxelLodTerrain.md#enumerations) mode )                                                                                                                                           
 [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html)      | [voxel_to_data_block_position](#i_voxel_to_data_block_position) ( [Vector3](https://docs.godotengine.org/en/stable/classes/class_vector3.html) voxel_position, [int](https://docs.godotengine.org/en/stable/classes/class_int.html) lod_index ) const 
 [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html)      | [voxel_to_mesh_block_position](#i_voxel_to_mesh_block_position) ( [Vector3](https://docs.godotengine.org/en/stable/classes/class_vector3.html) voxel_position, [int](https://docs.godotengine.org/en/stable/classes/class_int.html) lod_index ) const 
 <p></p>
@@ -110,11 +111,17 @@ enum **DebugDrawFlag**:
 
 enum **StreamingSystem**: 
 
-- <span id="i_STREAMING_SYSTEM_LEGACY_OCTREE"></span>**STREAMING_SYSTEM_LEGACY_OCTREE** = **0** --- Loads chunks around the viewer in a spherical pattern. Does not support multiple viewers. Does not support collision-only viewers. Does not support "no viewers" (will assume origin instead). Does not support per-viewer view distance, only [VoxelLodTerrain.view_distance](VoxelLodTerrain.md#i_view_distance) is used. This was the first system to be implemented, therefore it remains available as default for compatibility.
-- <span id="i_STREAMING_SYSTEM_CLIPBOX"></span>**STREAMING_SYSTEM_CLIPBOX** = **1** --- Loads chunks around the viewer in concentric boxes. Supports multiple viewers and collision-only viewers. This is a better system for multiplayer streaming. Due to simplifications, chunk locations at each LOD might be less optimal than [VoxelLodTerrain.STREAMING_SYSTEM_LEGACY_OCTREE](VoxelLodTerrain.md#i_STREAMING_SYSTEM_LEGACY_OCTREE).
+- <span id="i_STREAMING_SYSTEM_LEGACY_OCTREE"></span>**STREAMING_SYSTEM_LEGACY_OCTREE** = **0** --- Loads chunks around the viewer in a spherical pattern. Does not support multiple viewers. Does not support collision-only viewers. Does not support "no viewers" (will assume origin instead). Does not support per-viewer view distance, only [view_distance](VoxelLodTerrain.md#i_view_distance) is used. This was the first system to be implemented, therefore it remains available as default for compatibility.
+- <span id="i_STREAMING_SYSTEM_CLIPBOX"></span>**STREAMING_SYSTEM_CLIPBOX** = **1** --- Loads chunks around the viewer in concentric boxes. Supports multiple viewers and collision-only viewers. This is a better system for multiplayer streaming. Due to simplifications, chunk locations at each LOD might be less optimal than [STREAMING_SYSTEM_LEGACY_OCTREE](VoxelLodTerrain.md#i_STREAMING_SYSTEM_LEGACY_OCTREE).
 
 
 ## Property Descriptions
+
+### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_cache_generated_blocks"></span> **cache_generated_blocks** = false
+
+If enabled, streaming the terrain will keep generated voxel data in memory around viewers, even if it wasn't edited. This can speedup voxel queries on non-edited areas and allows [VoxelStream.save_generator_output](VoxelStream.md#i_save_generator_output) to work, but increases memory usage significantly.
+
+This option is not supported when [full_load_mode_enabled](VoxelLodTerrain.md#i_full_load_mode_enabled) is enabled.
 
 ### [int](https://docs.godotengine.org/en/stable/classes/class_int.html)<span id="i_collision_layer"></span> **collision_layer** = 1
 
@@ -122,7 +129,7 @@ Collision layer used by generated colliders. Check Godot documentation for more 
 
 ### [int](https://docs.godotengine.org/en/stable/classes/class_int.html)<span id="i_collision_lod_count"></span> **collision_lod_count** = 0
 
-How many LOD levels are set to generate colliders, starting from LOD 0.
+How many LOD levels are set to generate colliders, starting from LOD 0. Setting this property to 0 means all LODs have collision.
 
 ### [float](https://docs.godotengine.org/en/stable/classes/class_float.html)<span id="i_collision_margin"></span> **collision_margin** = 0.04
 
@@ -190,7 +197,7 @@ How long to wait before updating colliders after an edit, in milliseconds. Colli
 
 ### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_full_load_mode_enabled"></span> **full_load_mode_enabled** = false
 
-If enabled, data streaming will be turned off, and all voxel data will be loaded from the [VoxelLodTerrain.stream](VoxelLodTerrain.md#i_stream) into memory.
+If enabled, data streaming will be turned off, and all voxel data will be loaded from the [stream](VoxelLodTerrain.md#i_stream) into memory.
 
 This removes several constraints, such as being able to edit anywhere and allowing distant normalmaps to include edited regions. This comes at the expense of more memory usage. However, only edited regions use memory, so in practice it can be good enough.
 
@@ -200,13 +207,13 @@ If enabled, chunked colliders will be generated from meshes.
 
 ### [int](https://docs.godotengine.org/en/stable/classes/class_int.html)<span id="i_lod_count"></span> **lod_count** = 4
 
-How many LOD levels to use. This should be tuned alongside [VoxelLodTerrain.lod_distance](VoxelLodTerrain.md#i_lod_distance): if you want to see very far, you need more LOD levels. This allows blocks to become larger the further away they are, to keep their numbers to an acceptable amount. In contrast, too few LOD levels means regions far away will have to use too many small blocks, which can affect performance.
+How many LOD levels to use. This should be tuned alongside [lod_distance](VoxelLodTerrain.md#i_lod_distance): if you want to see very far, you need more LOD levels. This allows blocks to become larger the further away they are, to keep their numbers to an acceptable amount. In contrast, too few LOD levels means regions far away will have to use too many small blocks, which can affect performance.
 
 ### [float](https://docs.godotengine.org/en/stable/classes/class_float.html)<span id="i_lod_distance"></span> **lod_distance** = 48.0
 
-How far LOD 0 extends from the viewer. Each parent LOD will extend twice as far as their children LOD levels. When [VoxelLodTerrain.full_load_mode_enabled](VoxelLodTerrain.md#i_full_load_mode_enabled) is disabled, this also defines how far edits are allowed.
+How far LOD 0 extends from the viewer. Each parent LOD will extend twice as far as their children LOD levels. When [full_load_mode_enabled](VoxelLodTerrain.md#i_full_load_mode_enabled) is disabled, this also defines how far edits are allowed.
 
-For further control of LODs beyond 0, see [VoxelLodTerrain.secondary_lod_distance](VoxelLodTerrain.md#i_secondary_lod_distance).
+For further control of LODs beyond 0, see [secondary_lod_distance](VoxelLodTerrain.md#i_secondary_lod_distance).
 
 ### [float](https://docs.godotengine.org/en/stable/classes/class_float.html)<span id="i_lod_fade_duration"></span> **lod_fade_duration** = 0.0
 
@@ -215,6 +222,8 @@ When set greater than 0, enables LOD fading. When mesh blocks get split/merged a
 ### [Material](https://docs.godotengine.org/en/stable/classes/class_material.html)<span id="i_material"></span> **material**
 
 Material used for the surface of the volume. The main usage of this node is with smooth voxels, which means if you want more than one "material" on the ground, you need to use splatmapping techniques with a shader. In addition, many features require shaders to work properly. Check the online documentation or examples for more information.
+
+Note: if you use a [ShaderMaterial](https://docs.godotengine.org/en/stable/classes/class_shadermaterial.html), it will be instanced on every chunk in order to support per-chunk/LOD features, so dynamic changes done to parameters will not apply. You can use [global uniforms](https://docs.godotengine.org/en/stable/tutorials/shaders/shader_reference/shading_language.html#global-uniforms) to workaround this limitation.
 
 ### [int](https://docs.godotengine.org/en/stable/classes/class_int.html)<span id="i_mesh_block_size"></span> **mesh_block_size** = 16
 
@@ -246,7 +255,7 @@ Maximum resolution of tiles in distant normalmaps.
 
 Minimum resolution of tiles in distant normalmaps.
 
-This is the resolution at which normalmaps will begin with, at the LOD level defined in [VoxelLodTerrain.normalmap_begin_lod_index](VoxelLodTerrain.md#i_normalmap_begin_lod_index). Resolutions will double at each LOD level, until they reach [VoxelLodTerrain.normalmap_tile_resolution_max](VoxelLodTerrain.md#i_normalmap_tile_resolution_max).
+This is the resolution at which normalmaps will begin with, at the LOD level defined in [normalmap_begin_lod_index](VoxelLodTerrain.md#i_normalmap_begin_lod_index). Resolutions will double at each LOD level, until they reach [normalmap_tile_resolution_max](VoxelLodTerrain.md#i_normalmap_tile_resolution_max).
 
 ### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_normalmap_use_gpu"></span> **normalmap_use_gpu** = false
 
@@ -254,7 +263,7 @@ Enables GPU detail normalmaps generation, which can speed it up. This is only va
 
 ### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_run_stream_in_editor"></span> **run_stream_in_editor** = true
 
-Sets wether the [VoxelLodTerrain.generator](VoxelLodTerrain.md#i_generator) and the [VoxelLodTerrain.stream](VoxelLodTerrain.md#i_stream) will run in the editor. This setting may turn on automatically if either contain a script, as multithreading can clash with script reloading in unexpected ways.
+Sets wether the [generator](VoxelLodTerrain.md#i_generator) and the [stream](VoxelLodTerrain.md#i_stream) will run in the editor. This setting may turn on automatically if either contain a script, as multithreading can clash with script reloading in unexpected ways.
 
 ### [float](https://docs.godotengine.org/en/stable/classes/class_float.html)<span id="i_secondary_lod_distance"></span> **secondary_lod_distance** = 48.0
 
@@ -262,11 +271,11 @@ Controls the size of each LOD above LOD 0, in voxels relative to those LODs (vox
 
 Note that it will not necessarily be respected accurately, and will rather be used as a target minimum distance.
 
-This is only used when [VoxelLodTerrain.streaming_system](VoxelLodTerrain.md#i_streaming_system) is set to [VoxelLodTerrain.STREAMING_SYSTEM_CLIPBOX](VoxelLodTerrain.md#i_STREAMING_SYSTEM_CLIPBOX). In other cases, [VoxelLodTerrain.lod_distance](VoxelLodTerrain.md#i_lod_distance) is used.
+This is only used when [streaming_system](VoxelLodTerrain.md#i_streaming_system) is set to [STREAMING_SYSTEM_CLIPBOX](VoxelLodTerrain.md#i_STREAMING_SYSTEM_CLIPBOX). In other cases, [lod_distance](VoxelLodTerrain.md#i_lod_distance) is used.
 
-To control LOD 0, see [VoxelLodTerrain.lod_distance](VoxelLodTerrain.md#i_lod_distance).
+To control LOD 0, see [lod_distance](VoxelLodTerrain.md#i_lod_distance).
 
-### [int](https://docs.godotengine.org/en/stable/classes/class_int.html)<span id="i_streaming_system"></span> **streaming_system** = 0
+### [StreamingSystem](VoxelLodTerrain.md#enumerations)<span id="i_streaming_system"></span> **streaming_system** = STREAMING_SYSTEM_LEGACY_OCTREE (0)
 
 Selects the underlying algorithm used to determine when to load and unload chunks around viewers as they move around.
 
@@ -284,7 +293,7 @@ Maximum distance viewers can have. If a viewer has a larger distance, it will be
 
 If your terrain size is finite (like an island or planet) and you want to keep it in view, you may want to set this value to a very large number. This is mainly useful for infinite terrains where a cap is desired.
 
-### [AABB](https://docs.godotengine.org/en/stable/classes/class_aabb.html)<span id="i_voxel_bounds"></span> **voxel_bounds** = AABB(-5.36871e+08, -5.36871e+08, -5.36871e+08, 1.07374e+09, 1.07374e+09, 1.07374e+09)
+### [AABB](https://docs.godotengine.org/en/stable/classes/class_aabb.html)<span id="i_voxel_bounds"></span> **voxel_bounds** = AABB(-536870900, -536870900, -536870900, 1073741800, 1073741800, 1073741800)
 
 Bounds within which volume data can exist (loaded or not), in voxels. By default, it is pseudo-infinite. If you make a planet, island or some sort of arena, you may want to choose a finite size.
 
@@ -310,7 +319,7 @@ Gets some debug information about a specific voxel data chunk.
 }
 ```
 
-### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_debug_get_draw_flag"></span> **debug_get_draw_flag**( [int](https://docs.godotengine.org/en/stable/classes/class_int.html) flag_index ) 
+### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_debug_get_draw_flag"></span> **debug_get_draw_flag**( [DebugDrawFlag](VoxelLodTerrain.md#enumerations) flag_index ) 
 
 Gets whether a specific debug drawing flag is enabled.
 
@@ -383,7 +392,7 @@ The returned array contains:
 ]
 ```
 
-### [void](#)<span id="i_debug_set_draw_flag"></span> **debug_set_draw_flag**( [int](https://docs.godotengine.org/en/stable/classes/class_int.html) flag_index, [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html) enabled ) 
+### [void](#)<span id="i_debug_set_draw_flag"></span> **debug_set_draw_flag**( [DebugDrawFlag](VoxelLodTerrain.md#enumerations) flag_index, [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html) enabled ) 
 
 Sets a specific debug drawing flag. Note that debug drawing must also be enabled for it to be visible.
 
@@ -405,7 +414,7 @@ Gets the size of one cunic data block in voxels.
 
 *(This method has no documentation)*
 
-### [int](https://docs.godotengine.org/en/stable/classes/class_int.html)<span id="i_get_process_callback"></span> **get_process_callback**( ) 
+### [ProcessCallback](VoxelLodTerrain.md#enumerations)<span id="i_get_process_callback"></span> **get_process_callback**( ) 
 
 Gets which callback is used to run the main thread update of this node.
 
@@ -458,7 +467,7 @@ Note that blocks getting unloaded as the viewer moves around can also trigger sa
 
 *(This method has no documentation)*
 
-### [void](#)<span id="i_set_process_callback"></span> **set_process_callback**( [int](https://docs.godotengine.org/en/stable/classes/class_int.html) mode ) 
+### [void](#)<span id="i_set_process_callback"></span> **set_process_callback**( [ProcessCallback](VoxelLodTerrain.md#enumerations) mode ) 
 
 Sets which process callback is used to run the main thread update of this node. By default, it uses `_process`.
 
@@ -470,4 +479,4 @@ Converts a voxel position into a data block position for a specific LOD index.
 
 Converts a voxel position into a mesh block position for a specific LOD index.
 
-_Generated on Aug 27, 2024_
+_Generated on Aug 09, 2025_

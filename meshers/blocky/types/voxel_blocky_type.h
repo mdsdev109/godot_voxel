@@ -3,6 +3,7 @@
 
 #include "../../../util/containers/std_vector.h"
 #include "../../../util/godot/classes/resource.h"
+#include "../voxel_blocky_fluid.h"
 #include "../voxel_blocky_model.h"
 #include "voxel_blocky_attribute.h"
 
@@ -56,15 +57,22 @@ public:
 		String to_string(Span<const Ref<VoxelBlockyAttribute>> context_attributes) const;
 		bool parse_from_array(const Array &array);
 		Array to_array() const;
+		void sort();
 	};
 
 	// Get or set models specifically associated to a particular variant (they are not necessarily the final result)
 	void set_variant(const VariantKey &key, Ref<VoxelBlockyModel> model);
 	Ref<VoxelBlockyModel> get_variant(const VariantKey &key) const;
 
-	void bake(StdVector<VoxelBlockyModel::BakedData> &out_models, StdVector<VariantKey> &out_keys,
-			VoxelBlockyModel::MaterialIndexer &material_indexer, const VariantKey *specific_key,
-			bool bake_tangents) const;
+	void bake(
+			StdVector<blocky::BakedModel> &out_models,
+			StdVector<VariantKey> &out_keys,
+			blocky::MaterialIndexer &material_indexer,
+			const VariantKey *specific_key,
+			bool bake_tangents,
+			StdVector<Ref<VoxelBlockyFluid>> &indexed_fluids,
+			StdVector<blocky::BakedFluid> &baked_fluids
+	) const;
 
 #ifdef TOOLS_ENABLED
 	void get_configuration_warnings(PackedStringArray &out_warnings) const;
@@ -76,12 +84,17 @@ public:
 
 private:
 	// Filters null entries, removes duplicates and sorts attributes before they can be used in processing
-	static void gather_and_sort_attributes(const StdVector<Ref<VoxelBlockyAttribute>> &attributes_with_maybe_nulls,
-			StdVector<Ref<VoxelBlockyAttribute>> &out_attributes);
+	static void gather_and_sort_attributes(
+			const StdVector<Ref<VoxelBlockyAttribute>> &attributes_with_maybe_nulls,
+			StdVector<Ref<VoxelBlockyAttribute>> &out_attributes
+	);
 
 	// Generates all combinations from pre-sorted attributes.
-	static void generate_keys(const StdVector<Ref<VoxelBlockyAttribute>> &attributes, StdVector<VariantKey> &out_keys,
-			bool include_rotations);
+	static void generate_keys(
+			const StdVector<Ref<VoxelBlockyAttribute>> &attributes,
+			StdVector<VariantKey> &out_keys,
+			bool include_rotations
+	);
 
 	void _on_attribute_changed();
 	void _on_base_model_changed();

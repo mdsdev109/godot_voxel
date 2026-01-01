@@ -45,16 +45,20 @@ Ref<VoxelRaycastResult> VoxelToolTerrain::raycast(
 			p_dir,
 			p_max_distance,
 			p_collision_mask,
-			0
+			0,
+			_raycast_normal_enabled
 	);
 }
 
-void VoxelToolTerrain::copy(Vector3i pos, VoxelBuffer &dst, uint8_t channels_mask) const {
+void VoxelToolTerrain::copy(
+		const Vector3i pos,
+		VoxelBuffer &dst,
+		const uint8_t p_channels_mask,
+		const bool with_metadata
+) const {
 	ERR_FAIL_COND(_terrain == nullptr);
-	if (channels_mask == 0) {
-		channels_mask = (1 << _channel);
-	}
-	_terrain->get_storage().copy(pos, dst, channels_mask);
+	const uint8_t channels_mask = (p_channels_mask == 0) ? (1 << _channel) : p_channels_mask;
+	_terrain->get_storage().copy(pos, dst, channels_mask, with_metadata);
 }
 
 void VoxelToolTerrain::paste(Vector3i pos, const VoxelBuffer &src, uint8_t channels_mask) {
@@ -62,7 +66,7 @@ void VoxelToolTerrain::paste(Vector3i pos, const VoxelBuffer &src, uint8_t chann
 	if (channels_mask == 0) {
 		channels_mask = (1 << _channel);
 	}
-	_terrain->get_storage().paste(pos, src, channels_mask, false);
+	_terrain->get_storage().paste(pos, src, channels_mask, false, true);
 	_post_edit(Box3i(pos, src.get_size()));
 }
 
@@ -82,29 +86,29 @@ void VoxelToolTerrain::paste_masked(
 	_post_edit(Box3i(pos, p_voxels->get_buffer().get_size()));
 }
 
-void VoxelToolTerrain::paste_masked_writable_list( //
-		Vector3i pos, //
-		Ref<godot::VoxelBuffer> p_voxels, //
-		uint8_t channels_mask, //
-		uint8_t src_mask_channel, //
-		uint64_t src_mask_value, //
-		uint8_t dst_mask_channel, //
-		PackedInt32Array dst_writable_list //
+void VoxelToolTerrain::paste_masked_writable_list(
+		Vector3i pos,
+		Ref<godot::VoxelBuffer> p_voxels,
+		uint8_t channels_mask,
+		uint8_t src_mask_channel,
+		uint64_t src_mask_value,
+		uint8_t dst_mask_channel,
+		PackedInt32Array dst_writable_list
 ) {
 	ERR_FAIL_COND(_terrain == nullptr);
 	ERR_FAIL_COND(p_voxels.is_null());
 	if (channels_mask == 0) {
 		channels_mask = (1 << _channel);
 	}
-	_terrain->get_storage().paste_masked_writable_list( //
-			pos, //
-			p_voxels->get_buffer(), //
-			channels_mask, //
-			src_mask_channel, //
-			src_mask_value, //
-			dst_mask_channel, //
+	_terrain->get_storage().paste_masked_writable_list(
+			pos,
+			p_voxels->get_buffer(),
+			channels_mask,
+			src_mask_channel,
+			src_mask_value,
+			dst_mask_channel,
 			to_span(dst_writable_list),
-			false //
+			false
 	);
 	_post_edit(Box3i(pos, p_voxels->get_buffer().get_size()));
 }
@@ -324,8 +328,7 @@ void VoxelToolTerrain::for_each_voxel_metadata_in_area(AABB voxel_area, const Ca
 		// reference types.
 
 		voxels_ptr->for_each_voxel_metadata_in_area(
-				rel_voxel_box,
-				[&callback, block_origin](Vector3i rel_pos, const VoxelMetadata &meta) {
+				rel_voxel_box, [&callback, block_origin](Vector3i rel_pos, const VoxelMetadata &meta) {
 					const Variant v = godot::get_as_variant(meta);
 					const Vector3i key = rel_pos + block_origin;
 #ifdef ZN_GODOT
@@ -422,6 +425,18 @@ void VoxelToolTerrain::do_path(Span<const Vector3> positions, Span<const float> 
 	}
 
 	_post_edit(total_voxel_box);
+}
+
+#ifdef VOXEL_ENABLE_MESH_SDF
+void VoxelToolTerrain::do_mesh(const VoxelMeshSDF &mesh_sdf, const Transform3D &transform, const float isolevel) {
+	ZN_ASSERT_RETURN(_terrain != nullptr);
+	do_mesh_chunked(mesh_sdf, _terrain->get_storage(), transform, isolevel, false);
+}
+#endif
+
+VoxelFormat VoxelToolTerrain::get_format() const {
+	ZN_ASSERT(_terrain != nullptr);
+	return _terrain->get_storage().get_format();
 }
 
 void VoxelToolTerrain::_bind_methods() {

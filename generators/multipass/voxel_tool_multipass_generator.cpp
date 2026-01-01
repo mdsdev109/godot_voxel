@@ -1,7 +1,9 @@
 #include "voxel_tool_multipass_generator.h"
 #include "../../edition/funcs.h"
+#include "../../storage/voxel_buffer_gd.h"
 #include "../../util/containers/dynamic_bitset.h"
 #include "../../util/godot/core/packed_arrays.h"
+#include "../../util/math/vector3.h"
 #include "../../util/string/format.h"
 
 namespace zylann::voxel {
@@ -80,9 +82,16 @@ struct GetPassInputBlock {
 
 } // namespace
 
-void VoxelToolMultipassGenerator::copy(Vector3i pos, VoxelBuffer &dst, uint8_t channels_mask) const {
+void VoxelToolMultipassGenerator::copy(
+		const Vector3i pos,
+		VoxelBuffer &dst,
+		const uint8_t channels_mask,
+		const bool with_metadata
+) const {
 	PassInput pass_input = _pass_input;
-	copy_from_chunked_storage(dst, pos, _block_size_po2, channels_mask, &get_pass_input_block_r, &pass_input);
+	copy_from_chunked_storage(
+			dst, pos, _block_size_po2, channels_mask, &get_pass_input_block_r, &pass_input, with_metadata
+	);
 }
 
 void VoxelToolMultipassGenerator::paste(Vector3i pos, const VoxelBuffer &src, uint8_t channels_mask) {
@@ -278,6 +287,24 @@ void VoxelToolMultipassGenerator::do_path(Span<const Vector3> positions, Span<co
 
 		op();
 	}
+}
+
+void VoxelToolMultipassGenerator::set_voxel_metadata(Vector3i pos, Variant meta) {
+	Vector3i rpos;
+	Block *block = get_block_and_relative_position(pos, rpos);
+	if (block == nullptr) {
+		return;
+	}
+	godot::set_voxel_metadata(block->voxels, rpos, meta);
+}
+
+Variant VoxelToolMultipassGenerator::get_voxel_metadata(Vector3i pos) const {
+	Vector3i rpos;
+	Block *block = get_block_and_relative_position(pos, rpos);
+	if (block == nullptr) {
+		return Variant();
+	}
+	return godot::get_voxel_metadata(block->voxels, rpos);
 }
 
 void VoxelToolMultipassGenerator::_bind_methods() {

@@ -51,7 +51,7 @@ bool VoxelAStarGrid3DInternal::is_solid(Vector3i pos) {
 
 		const VoxelBuffer::ChannelId channel_index = VoxelBuffer::CHANNEL_TYPE;
 		const Vector3i copy_origin = (cpos << Chunk::SIZE_PO2) + get_region().position;
-		data->copy(copy_origin, _voxel_buffer, 1 << channel_index);
+		data->copy(copy_origin, _voxel_buffer, 1 << channel_index, false);
 
 		if (_voxel_buffer.get_channel_compression(channel_index) == VoxelBuffer::COMPRESSION_UNIFORM) {
 			if (_voxel_buffer.get_voxel(0, 0, 0, channel_index) != 0) {
@@ -111,6 +111,9 @@ void VoxelAStarGrid3D::set_terrain(VoxelTerrain *node) {
 TypedArray<Vector3i> VoxelAStarGrid3D::find_path(Vector3i from_position, Vector3i to_position) {
 	ZN_PROFILE_SCOPE();
 	ZN_ASSERT_RETURN_V(_is_running_async == false, TypedArray<Vector3i>());
+	ZN_ASSERT_RETURN_V_MSG(
+			_path_finder.data != nullptr, TypedArray<Vector3i>(), "Terrain to pathfind was not set, use `set_terrain()`"
+	);
 #ifdef DEBUG_ENABLED
 	check_params(from_position, to_position);
 #endif
@@ -173,6 +176,7 @@ Box3i VoxelAStarGrid3D::get_region() {
 
 void VoxelAStarGrid3D::find_path_async(Vector3i from_position, Vector3i to_position) {
 	ZN_ASSERT_RETURN(_is_running_async == false);
+	ZN_ASSERT_RETURN_MSG(_path_finder.data != nullptr, "Terrain to pathfind was not set, use `set_terrain()`");
 
 #ifdef DEBUG_ENABLED
 	check_params(from_position, to_position);

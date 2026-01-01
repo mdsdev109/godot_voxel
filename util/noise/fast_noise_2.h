@@ -3,7 +3,20 @@
 
 #include "../containers/span.h"
 #include "../math/interval.h"
+
+#if defined(__GNUC__) && !defined(__clang__)
+// FastNoise2 uses virtual inheritance, but Godot 4.5 added a warning to enforce not using it.
+// See https://github.com/godotengine/godot/pull/103708
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wvirtual-inheritance"
+#endif
+
 #include "FastNoise/FastNoise.h"
+
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
+
 #include <core/io/resource.h>
 
 class Image;
@@ -17,6 +30,7 @@ public:
 	static const int MAX_OCTAVES = 32;
 	// This minimum size exists to fix an issue with SIMD operations, which need to use more than one element.
 	static const unsigned int MIN_BUFFER_SIZE = 16;
+	static const int MAX_CELLULAR_INDEX = 3;
 
 	enum SIMDLevel {
 		SIMD_NULL = FastSIMD::Level_Null, // Uninitilised
@@ -41,12 +55,14 @@ public:
 		TYPE_VALUE,
 		TYPE_CELLULAR,
 		// Special type overriding most options with a tree made in Auburn's NoiseTool
-		TYPE_ENCODED_NODE_TREE
+		TYPE_ENCODED_NODE_TREE,
+		TYPE_CELLULAR_VALUE,
 		// TODO Implement NoiseTool graph editor inside Godot?
 		// TYPE_NODE_TREE,
 	};
 
-	static constexpr const char *NOISE_TYPE_HINT_STRING = "OpenSimplex2,Simplex,Perlin,Value,Cellular,EncodedNodeTree";
+	static constexpr const char *NOISE_TYPE_HINT_STRING =
+			"OpenSimplex2,Simplex,Perlin,Value,Cellular,EncodedNodeTree,CellularValue";
 
 	enum FractalType { //
 		FRACTAL_NONE = 0,
@@ -150,6 +166,12 @@ public:
 	void set_cellular_jitter(float jitter);
 	float get_cellular_jitter() const;
 
+	void set_cellular_index0(int i);
+	int get_cellular_index0() const;
+
+	void set_cellular_index1(int i);
+	int get_cellular_index1() const;
+
 	// Misc
 
 	void set_encoded_node_tree(String data);
@@ -165,8 +187,12 @@ public:
 	float get_noise_3d_single(Vector3 pos) const;
 
 	void get_noise_2d_series(Span<const float> src_x, Span<const float> src_y, Span<float> dst) const;
-	void get_noise_3d_series(Span<const float> src_x, Span<const float> src_y, Span<const float> src_z, Span<float> dst)
-			const;
+	void get_noise_3d_series(
+			Span<const float> src_x,
+			Span<const float> src_y,
+			Span<const float> src_z,
+			Span<float> dst
+	) const;
 
 	void get_noise_2d_grid(Vector2 origin, Vector2i size, Span<float> dst) const;
 	void get_noise_3d_grid(Vector3 origin, Vector3i size, Span<float> dst) const;
@@ -178,11 +204,6 @@ public:
 	math::Interval get_estimated_output_range() const;
 
 private:
-	// Non-static method for scripts because Godot4 does not support binding static methods (it's only
-	// implemented for primitive types)
-	// TODO Make it static, it is supported now
-	String _b_get_simd_level_name(SIMDLevel level);
-
 	static void _bind_methods();
 
 	int _seed = 1337;
@@ -205,6 +226,8 @@ private:
 	CellularDistanceFunction _cellular_distance_function = CELLULAR_DISTANCE_EUCLIDEAN;
 	CellularReturnType _cellular_return_type = CELLULAR_RETURN_INDEX_0;
 	float _cellular_jitter = 1.0;
+	uint8_t _cellular_index0 = 0;
+	uint8_t _cellular_index1 = 1;
 
 	bool _remap_enabled = false;
 	float _remap_src_min = -1.0;

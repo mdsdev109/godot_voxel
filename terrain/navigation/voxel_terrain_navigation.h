@@ -17,6 +17,7 @@ class VoxelTerrainNavigation : public Node3D {
 	GDCLASS(VoxelTerrainNavigation, Node3D)
 public:
 	VoxelTerrainNavigation();
+	virtual ~VoxelTerrainNavigation();
 
 	void set_enabled(bool p_enabled);
 	bool is_enabled() const;

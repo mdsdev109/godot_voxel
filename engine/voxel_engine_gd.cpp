@@ -10,6 +10,11 @@
 #include "../util/tasks/godot/threaded_task_gd.h"
 #include "voxel_engine.h"
 
+#ifdef VOXEL_TESTS
+#include "../tests/tests.h"
+#include "../util/testing/test_options.h"
+#endif
+
 using namespace zylann::godot;
 
 namespace zylann::voxel::godot {
@@ -90,6 +95,23 @@ int VoxelEngine::get_version_patch() const {
 	return VOXEL_VERSION_PATCH;
 }
 
+Vector3i VoxelEngine::get_version_v() const {
+	// Handy to compare versions quickly, as Vector3i::operator< compares x first, then y, then z
+	return Vector3i(get_version_major(), get_version_minor(), get_version_patch());
+}
+
+String VoxelEngine::get_version_edition() const {
+	return VOXEL_VERSION_EDITION;
+}
+
+String VoxelEngine::get_version_status() const {
+	return VOXEL_VERSION_STATUS;
+}
+
+String VoxelEngine::get_version_git_hash() const {
+	return VOXEL_VERSION_GIT_HASH;
+}
+
 Dictionary to_dict(const zylann::voxel::VoxelEngine::Stats::ThreadPoolStats &stats) {
 	Dictionary d;
 	d["tasks"] = stats.tasks;
@@ -122,6 +144,9 @@ Dictionary to_dict(const zylann::voxel::VoxelEngine::Stats &stats) {
 	tasks["generation"] = stats.generation_tasks;
 	tasks["meshing"] = stats.meshing_tasks;
 	tasks["main_thread"] = stats.main_thread_tasks;
+#ifdef VOXEL_ENABLE_GPU
+	tasks["gpu"] = stats.gpu_tasks;
+#endif
 
 	// This part is additional for scripts because VoxelMemoryPool is not exposed
 	Dictionary mem;
@@ -150,6 +175,17 @@ Dictionary to_dict(const zylann::voxel::VoxelEngine::Stats &stats) {
 Dictionary VoxelEngine::get_stats() const {
 	ZN_PROFILE_SCOPE();
 	return to_dict(zylann::voxel::VoxelEngine::get_singleton().get_stats());
+}
+
+int VoxelEngine::get_thread_count() const {
+	return zylann::voxel::VoxelEngine::get_singleton().get_thread_count();
+}
+
+void VoxelEngine::set_thread_count(int count) {
+	constexpr int MAX_THREADS = static_cast<int>(ThreadedTaskRunner::MAX_THREADS);
+	ERR_FAIL_COND_MSG(count < 1 || count > MAX_THREADS,
+			vformat("Thread count must be a number from 1 to %d", MAX_THREADS));
+	zylann::voxel::VoxelEngine::get_singleton().set_thread_count(static_cast<uint32_t>(count));
 }
 
 void VoxelEngine::schedule_task(Ref<ZN_ThreadedTask> task) {
@@ -181,11 +217,51 @@ Vector3 VoxelEngine::get_editor_camera_direction() const {
 
 #endif
 
+#ifdef VOXEL_TESTS
+
+void VoxelEngine::run_tests(Dictionary options_dict) {
+	zylann::testing::TestOptions options(options_dict);
+	zylann::voxel::tests::run_voxel_tests(options);
+}
+
+#endif
+
+bool VoxelEngine::_b_get_threaded_graphics_resource_building_enabled() const {
+	const zylann::voxel::VoxelEngine &ve = zylann::voxel::VoxelEngine::get_singleton();
+	return ve.is_threaded_graphics_resource_building_enabled();
+}
+
+// This is normally automatic. This method is mainly to allow overriding it just in case.
+// void VoxelEngine::_b_set_threaded_graphics_resource_building_enabled(bool enabled) {
+// 	zylann::voxel::VoxelEngine &ve = zylann::voxel::VoxelEngine::get_singleton();
+// 	ve.set_threaded_graphics_resource_building_enabled(enabled);
+// }
+
 void VoxelEngine::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_version_major"), &VoxelEngine::get_version_major);
 	ClassDB::bind_method(D_METHOD("get_version_minor"), &VoxelEngine::get_version_minor);
 	ClassDB::bind_method(D_METHOD("get_version_patch"), &VoxelEngine::get_version_patch);
+	ClassDB::bind_method(D_METHOD("get_version_v"), &VoxelEngine::get_version_v);
+	ClassDB::bind_method(D_METHOD("get_version_edition"), &VoxelEngine::get_version_edition);
+	ClassDB::bind_method(D_METHOD("get_version_status"), &VoxelEngine::get_version_status);
+	ClassDB::bind_method(D_METHOD("get_version_git_hash"), &VoxelEngine::get_version_git_hash);
 	ClassDB::bind_method(D_METHOD("get_stats"), &VoxelEngine::get_stats);
+	ClassDB::bind_method(D_METHOD("get_thread_count"), &VoxelEngine::get_thread_count);
+	ClassDB::bind_method(D_METHOD("set_thread_count", "count"), &VoxelEngine::set_thread_count);
+
+	ClassDB::bind_method(
+			D_METHOD("get_threaded_graphics_resource_building_enabled"),
+			&VoxelEngine::_b_get_threaded_graphics_resource_building_enabled
+	);
+
+#ifdef VOXEL_TESTS
+	ClassDB::bind_method(D_METHOD("run_tests", "options"), &VoxelEngine::run_tests);
+#endif
+
+	// ClassDB::bind_method(
+	// 		D_METHOD("set_threaded_graphics_resource_building_enabled", "enabled"),
+	// 		&VoxelEngine::_b_set_threaded_graphics_resource_building_enabled
+	// );
 }
 
 } // namespace zylann::voxel::godot

@@ -39,6 +39,9 @@ public:
 	uint64_t last_collider_update_time = 0;
 	UniquePtr<VoxelMesher::Output> deferred_collider_data;
 
+	int32_t col_vertex_end = -1;
+	int32_t col_index_end = -1;
+
 	VoxelMeshBlockVLT(const Vector3i bpos, unsigned int size, unsigned int p_lod_index);
 	~VoxelMeshBlockVLT();
 
@@ -51,6 +54,18 @@ public:
 	bool update_fading(float speed);
 	void clear_fading();
 
+	uint8_t get_marker() const {
+		return _marker;
+	}
+
+	void increment_marker() {
+		++_marker;
+		if (_marker == 0) {
+			// Avoid wrapping to 0, because it's the default value
+			_marker = 1;
+		}
+	}
+
 	void set_parent_visible(bool parent_visible);
 
 	void set_mesh(
@@ -58,7 +73,9 @@ public:
 			GeometryInstance3D::GIMode gi_mode,
 			RenderingServer::ShadowCastingSetting shadow_casting,
 			int render_layers_mask,
-			Ref<Mesh> shadow_occluder_mesh
+			Ref<Mesh> shadow_occluder_mesh,
+			int32_t p_col_vertex_max,
+			int32_t p_col_index_max
 #ifdef TOOLS_ENABLED
 			,
 			RenderingServer::ShadowCastingSetting shadow_occluder_mode
@@ -96,6 +113,8 @@ public:
 	void set_parent_transform(const Transform3D &parent_transform);
 	void update_transition_mesh_transform(unsigned int side, const Transform3D &parent_transform);
 
+	Transform3D get_transform() const;
+
 	template <typename F>
 	void for_each_mesh_instance_with_transform(F f) const {
 		const Transform3D local_transform(Basis(), _position_in_voxels);
@@ -129,11 +148,13 @@ private:
 
 	uint8_t _transition_mask = 0;
 
+	uint8_t _marker = 1;
+
 	// See VoxelMesherBlocky.
 	// This unfortunately has to be a whole separate mesh instance because Godot doesn't support setting
 	// `cast_shadow` mode per mesh surface. This might have an impact on performance.
 	zylann::godot::DirectMeshInstance _shadow_occluder;
-
+	Transform3D _world_transform;
 #ifdef VOXEL_DEBUG_LOD_MATERIALS
 	Ref<Material> _debug_material;
 	Ref<Material> _debug_transition_material;

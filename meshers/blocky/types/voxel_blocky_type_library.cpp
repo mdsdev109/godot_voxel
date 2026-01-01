@@ -9,6 +9,7 @@
 #include "../../../util/godot/core/typed_array.h"
 #include "../../../util/profiling.h"
 #include "../../../util/string/format.h"
+#include "../blocky_material_indexer.h"
 #include "../voxel_blocky_model_cube.h"
 
 namespace zylann::voxel {
@@ -50,9 +51,10 @@ void VoxelBlockyTypeLibrary::bake() {
 	_indexed_materials.clear();
 	_baked_data.models.clear();
 
-	StdVector<VoxelBlockyModel::BakedData> baked_models;
+	StdVector<blocky::BakedModel> baked_models;
 	StdVector<VoxelBlockyType::VariantKey> keys;
-	VoxelBlockyModel::MaterialIndexer material_indexer{ _indexed_materials };
+	blocky::MaterialIndexer material_indexer{ _indexed_materials };
+	StdVector<Ref<VoxelBlockyFluid>> indexed_fluids;
 
 	_baked_data.models.resize(_id_map.size());
 
@@ -60,13 +62,15 @@ void VoxelBlockyTypeLibrary::bake() {
 		Ref<VoxelBlockyType> type = _types[i];
 		ZN_ASSERT_CONTINUE_MSG(type.is_valid(), format("{} at index {} is null", ZN_CLASS_NAME_C(VoxelBlockyType), i));
 
-		type->bake(baked_models, keys, material_indexer, nullptr, get_bake_tangents());
+		type->bake(
+				baked_models, keys, material_indexer, nullptr, get_bake_tangents(), indexed_fluids, _baked_data.fluids
+		);
 
 		VoxelID id;
 		id.type_name = type->get_unique_name();
 
 		unsigned int rel_key_index = 0;
-		for (VoxelBlockyModel::BakedData &baked_model : baked_models) {
+		for (blocky::BakedModel &baked_model : baked_models) {
 			// _baked_data.models.push_back(std::move(baked_model));
 			id.variant_key = keys[rel_key_index];
 
@@ -78,7 +82,7 @@ void VoxelBlockyTypeLibrary::bake() {
 				if (!find(to_span_const(_id_map), VoxelID(), model_index)) {
 					// If not found, allocate a new index at the end
 					model_index = _baked_data.models.size();
-					_baked_data.models.push_back(VoxelBlockyModel::BakedData());
+					_baked_data.models.push_back(blocky::BakedModel());
 					_id_map.push_back(id);
 				}
 			}
@@ -98,6 +102,12 @@ void VoxelBlockyTypeLibrary::bake() {
 				format("Reached maximum supported models {}. {} extra models will not be used.", MAX_MODELS, extra)
 		);
 		_baked_data.models.resize(MAX_MODELS);
+	}
+
+	for (unsigned int fluid_index = 0; fluid_index < indexed_fluids.size(); ++fluid_index) {
+		const VoxelBlockyFluid &fluid = **indexed_fluids[fluid_index];
+		blocky::BakedFluid &baked_fluid = _baked_data.fluids[fluid_index];
+		fluid.bake(baked_fluid, material_indexer);
 	}
 
 	_baked_data.indexed_materials_count = _indexed_materials.size();
@@ -120,7 +130,7 @@ void VoxelBlockyTypeLibrary::update_id_map(StdVector<VoxelID> &id_map, StdVector
 	for (size_t i = 0; i < _types.size(); ++i) {
 		Ref<VoxelBlockyType> type = _types[i];
 
-		if (type == nullptr) {
+		if (type.is_null()) {
 			continue;
 		}
 
@@ -360,7 +370,8 @@ int VoxelBlockyTypeLibrary::get_model_index_with_attributes(StringName type_name
 		if (dict_key_type == Variant::STRING || dict_key_type == Variant::STRING_NAME) {
 			pair.first = dict_key;
 		} else {
-			ZN_PRINT_ERROR(format("Attribute name must be a StringName. Got {}", Variant::get_type_name(dict_key_type))
+			ZN_PRINT_ERROR(
+					format("Attribute name must be a StringName. Got {}", Variant::get_type_name(dict_key_type))
 			);
 			return -1;
 		}
@@ -416,7 +427,7 @@ Array VoxelBlockyTypeLibrary::get_type_name_and_attributes_from_model_index(int 
 	Dictionary dict;
 	for (unsigned int attribute_index = 0; attribute_index < id.variant_key.attribute_names.size(); ++attribute_index) {
 		const StringName &attrib_name = id.variant_key.attribute_names[attribute_index];
-		if (attrib_name == StringName()) {
+		if (zylann::godot::is_empty(attrib_name)) {
 			break;
 		}
 		dict[attrib_name] = id.variant_key.attribute_values[attribute_index];
@@ -620,6 +631,14 @@ bool VoxelBlockyTypeLibrary::parse_voxel_id(const String &p_str, VoxelID &out_id
 		if (token.type == VoxelIDToken::CLOSE_BRACKET) {
 			break;
 		}
+
+		if (attribute_index > 0) {
+			ZN_ASSERT_RETURN_V(token.type == VoxelIDToken::COMMA, false);
+
+			result = tokenizer.get(token);
+			ZN_ASSERT_RETURN_V(result == VoxelIDTokenizer::TOKEN, false);
+		}
+
 		ZN_ASSERT_RETURN_V(token.type == VoxelIDToken::NAME, false);
 		out_id.variant_key.attribute_names[attribute_index] = p_str.substr(token.position, token.size);
 
@@ -721,11 +740,12 @@ bool VoxelBlockyTypeLibrary::load_id_map_from_json(String json_string) {
 	return load_id_map_from_string_array(map_sarray);
 }
 
-String VoxelBlockyTypeLibrary::to_string(const VoxelID &id) {
-	String s = id.type_name;
-	if (id.variant_key.attribute_names[0] != StringName()) {
+String VoxelBlockyTypeLibrary::VoxelID::to_string() const {
+	String s = type_name;
+	// Assuming the key is sorted, we can check if it contains variant parameters by just checking the first
+	if (!zylann::godot::is_empty(variant_key.attribute_names[0])) {
 		s += "[";
-		s += id.variant_key.to_string();
+		s += variant_key.to_string();
 		s += "]";
 	}
 	return s;
@@ -739,10 +759,10 @@ PackedStringArray VoxelBlockyTypeLibrary::serialize_id_map_to_string_array(const
 	Span<String> array_w(array.ptrw(), array.size());
 	for (unsigned int model_index = 0; model_index < id_map.size(); ++model_index) {
 		const VoxelID &id = id_map[model_index];
-		if (id.type_name == StringName()) {
+		if (zylann::godot::is_empty(id.type_name)) {
 			continue;
 		}
-		array_w[model_index] = to_string(id);
+		array_w[model_index] = id.to_string();
 	}
 
 	return array;

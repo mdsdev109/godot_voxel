@@ -7,24 +7,25 @@ Voxel volume using constant level of detail.
 ## Properties: 
 
 
-Type                                                                            | Name                                                                     | Default                                                                               
-------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [area_edit_notification_enabled](#i_area_edit_notification_enabled)      | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [automatic_loading_enabled](#i_automatic_loading_enabled)                | true                                                                                  
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [block_enter_notification_enabled](#i_block_enter_notification_enabled)  | false                                                                                 
-[AABB](https://docs.godotengine.org/en/stable/classes/class_aabb.html)          | [bounds](#i_bounds)                                                      | AABB(-5.36871e+08, -5.36871e+08, -5.36871e+08, 1.07374e+09, 1.07374e+09, 1.07374e+09) 
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_layer](#i_collision_layer)                                    | 1                                                                                     
-[float](https://docs.godotengine.org/en/stable/classes/class_float.html)        | [collision_margin](#i_collision_margin)                                  | 0.04                                                                                  
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_mask](#i_collision_mask)                                      | 1                                                                                     
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_enabled](#i_debug_draw_enabled)                              | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_shadow_occluders](#i_debug_draw_shadow_occluders)            | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_volume_bounds](#i_debug_draw_volume_bounds)                  | false                                                                                 
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [generate_collisions](#i_generate_collisions)                            | true                                                                                  
-[Material](https://docs.godotengine.org/en/stable/classes/class_material.html)  | [material_override](#i_material_override)                                |                                                                                       
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [max_view_distance](#i_max_view_distance)                                | 128                                                                                   
-[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [mesh_block_size](#i_mesh_block_size)                                    | 16                                                                                    
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [run_stream_in_editor](#i_run_stream_in_editor)                          | true                                                                                  
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [use_gpu_generation](#i_use_gpu_generation)                              | false                                                                                 
+Type                                                                            | Name                                                                                 | Default                                                                      
+------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | -----------------------------------------------------------------------------
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [area_edit_notification_enabled](#i_area_edit_notification_enabled)                  | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [automatic_loading_enabled](#i_automatic_loading_enabled)                            | true                                                                         
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [block_enter_notification_enabled](#i_block_enter_notification_enabled)              | false                                                                        
+[AABB](https://docs.godotengine.org/en/stable/classes/class_aabb.html)          | [bounds](#i_bounds)                                                                  | AABB(-536870900, -536870900, -536870900, 1073741800, 1073741800, 1073741800) 
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_layer](#i_collision_layer)                                                | 1                                                                            
+[float](https://docs.godotengine.org/en/stable/classes/class_float.html)        | [collision_margin](#i_collision_margin)                                              | 0.04                                                                         
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [collision_mask](#i_collision_mask)                                                  | 1                                                                            
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_enabled](#i_debug_draw_enabled)                                          | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_shadow_occluders](#i_debug_draw_shadow_occluders)                        | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_visual_and_collision_blocks](#i_debug_draw_visual_and_collision_blocks)  | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [debug_draw_volume_bounds](#i_debug_draw_volume_bounds)                              | false                                                                        
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [generate_collisions](#i_generate_collisions)                                        | true                                                                         
+[Material](https://docs.godotengine.org/en/stable/classes/class_material.html)  | [material_override](#i_material_override)                                            |                                                                              
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [max_view_distance](#i_max_view_distance)                                            | 128                                                                          
+[int](https://docs.godotengine.org/en/stable/classes/class_int.html)            | [mesh_block_size](#i_mesh_block_size)                                                | 16                                                                           
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [run_stream_in_editor](#i_run_stream_in_editor)                                      | true                                                                         
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)          | [use_gpu_generation](#i_use_gpu_generation)                                          | false                                                                        
 <p></p>
 
 ## Methods: 
@@ -35,8 +36,8 @@ Return                                                                          
 [void](#)                                                                                       | [_on_area_edited](#i__on_area_edited) ( [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html) area_origin, [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html) area_size ) virtual                                       
 [void](#)                                                                                       | [_on_data_block_entered](#i__on_data_block_entered) ( [VoxelDataBlockEnterInfo](VoxelDataBlockEnterInfo.md) info ) virtual                                                                                                                                                   
 [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html)                  | [data_block_to_voxel](#i_data_block_to_voxel) ( [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html) block_pos ) const                                                                                                                             
-[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)                          | [debug_get_draw_flag](#i_debug_get_draw_flag) ( [int](https://docs.godotengine.org/en/stable/classes/class_int.html) flag_index ) const                                                                                                                                      
-[void](#)                                                                                       | [debug_set_draw_flag](#i_debug_set_draw_flag) ( [int](https://docs.godotengine.org/en/stable/classes/class_int.html) flag_index, [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html) enabled )                                                            
+[bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)                          | [debug_get_draw_flag](#i_debug_get_draw_flag) ( [DebugDrawFlag](VoxelTerrain.md#enumerations) flag_index ) const                                                                                                                                                             
+[void](#)                                                                                       | [debug_set_draw_flag](#i_debug_set_draw_flag) ( [DebugDrawFlag](VoxelTerrain.md#enumerations) flag_index, [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html) enabled )                                                                                   
 [int](https://docs.godotengine.org/en/stable/classes/class_int.html)                            | [get_data_block_size](#i_get_data_block_size) ( ) const                                                                                                                                                                                                                      
 [Dictionary](https://docs.godotengine.org/en/stable/classes/class_dictionary.html)              | [get_statistics](#i_get_statistics) ( ) const                                                                                                                                                                                                                                
 [PackedInt32Array](https://docs.godotengine.org/en/stable/classes/class_packedint32array.html)  | [get_viewer_network_peer_ids_in_area](#i_get_viewer_network_peer_ids_in_area) ( [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html) area_origin, [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html) area_size ) const 
@@ -61,7 +62,7 @@ Emitted when a data block is unloaded due to being outside view distance.
 
 ### mesh_block_entered( [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html) position ) 
 
-Emitted when a mesh block receives its first update since it was added in the range of viewers. This is regardless of the mesh being empty or not. It tracks changes of the same state obtained with [VoxelTerrain.is_area_meshed](VoxelTerrain.md#i_is_area_meshed).
+Emitted when a mesh block receives its first update since it was added in the range of viewers. This is regardless of the mesh being empty or not. It tracks changes of the same state obtained with [is_area_meshed](VoxelTerrain.md#i_is_area_meshed).
 
 ### mesh_block_exited( [Vector3i](https://docs.godotengine.org/en/stable/classes/class_vector3i.html) position ) 
 
@@ -72,7 +73,7 @@ Emitted when a mesh block gets unloaded. It is the counterpart of [VoxelTerrain.
 enum **DebugDrawFlag**: 
 
 - <span id="i_DEBUG_DRAW_VOLUME_BOUNDS"></span>**DEBUG_DRAW_VOLUME_BOUNDS** = **0**
-- <span id="i_DEBUG_DRAW_FLAGS_COUNT"></span>**DEBUG_DRAW_FLAGS_COUNT** = **1**
+- <span id="i_DEBUG_DRAW_FLAGS_COUNT"></span>**DEBUG_DRAW_FLAGS_COUNT** = **2**
 
 
 ## Property Descriptions
@@ -89,7 +90,7 @@ If turned off, the terrain will no longer automatically load blocks around viewe
 
 *(This property has no documentation)*
 
-### [AABB](https://docs.godotengine.org/en/stable/classes/class_aabb.html)<span id="i_bounds"></span> **bounds** = AABB(-5.36871e+08, -5.36871e+08, -5.36871e+08, 1.07374e+09, 1.07374e+09, 1.07374e+09)
+### [AABB](https://docs.godotengine.org/en/stable/classes/class_aabb.html)<span id="i_bounds"></span> **bounds** = AABB(-536870900, -536870900, -536870900, 1073741800, 1073741800, 1073741800)
 
 Defines the bounds within which the terrain is allowed to have voxels. If an infinite world generator is used, blocks will only generate within this region. Everything outside will be left empty.
 
@@ -110,6 +111,10 @@ Defines the bounds within which the terrain is allowed to have voxels. If an inf
 *(This property has no documentation)*
 
 ### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_debug_draw_shadow_occluders"></span> **debug_draw_shadow_occluders** = false
+
+*(This property has no documentation)*
+
+### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_debug_draw_visual_and_collision_blocks"></span> **debug_draw_visual_and_collision_blocks** = false
 
 *(This property has no documentation)*
 
@@ -163,11 +168,11 @@ Enables GPU block generation, which can speed it up. This is only valid for gene
 
 Converts data block coordinates into voxel coordinates. Voxel coordinates of a block correspond to its lowest corner.
 
-### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_debug_get_draw_flag"></span> **debug_get_draw_flag**( [int](https://docs.godotengine.org/en/stable/classes/class_int.html) flag_index ) 
+### [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html)<span id="i_debug_get_draw_flag"></span> **debug_get_draw_flag**( [DebugDrawFlag](VoxelTerrain.md#enumerations) flag_index ) 
 
 *(This method has no documentation)*
 
-### [void](#)<span id="i_debug_set_draw_flag"></span> **debug_set_draw_flag**( [int](https://docs.godotengine.org/en/stable/classes/class_int.html) flag_index, [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html) enabled ) 
+### [void](#)<span id="i_debug_set_draw_flag"></span> **debug_set_draw_flag**( [DebugDrawFlag](VoxelTerrain.md#enumerations) flag_index, [bool](https://docs.godotengine.org/en/stable/classes/class_bool.html) enabled ) 
 
 *(This method has no documentation)*
 
@@ -221,21 +226,17 @@ When streaming terrain, this can be used to determine if an area has fully "load
 
 Forces a specific block to be saved.
 
-Note 1: all modified blocks are automatically saved before the terrain is destroyed.
+Note 1: this will only have an effect if the stream setup on this terrain supports saving.
 
-Note 2: this will only have an effect if the stream setup on this terrain supports saving.
-
-Note 3: saving is asynchronous and won't block the game. the save may complete only a short time after you call this method.
+Note 2: saving is asynchronous and won't block the game. the save may complete only a short time after you call this method.
 
 ### [VoxelSaveCompletionTracker](VoxelSaveCompletionTracker.md)<span id="i_save_modified_blocks"></span> **save_modified_blocks**( ) 
 
 Forces all modified blocks to be saved.
 
-Note 1: all modified blocks are automatically saved before the terrain is destroyed.
+Note 1: this will only have an effect if the stream setup on this terrain supports saving.
 
-Note 2: this will only have an effect if the stream setup on this terrain supports saving.
-
-Note 3: saving is asynchronous and won't block the game. the save may complete only a short time after you call this method.
+Note 2: saving is asynchronous and won't block the game. the save may complete only a short time after you call this method.
 
 Use the returned tracker object to know when saving has completed. However, saves occurring after calling this method won't be tracked by this object.
 
@@ -249,4 +250,4 @@ Note that blocks getting unloaded as the viewer moves around can also trigger sa
 
 *(This method has no documentation)*
 
-_Generated on Aug 27, 2024_
+_Generated on Aug 09, 2025_

@@ -2,15 +2,16 @@
 #define VOXEL_EDITION_FUNCS_H
 
 #include "../storage/funcs.h"
-#include "../storage/materials_4i4w.h"
+#include "../storage/mixel4.h"
 #include "../storage/voxel_data_grid.h"
 #include "../util/containers/dynamic_bitset.h"
 #include "../util/containers/fixed_array.h"
+#include "../util/godot/core/transform_3d.h"
 #include "../util/godot/macros.h"
 #include "../util/math/box3f.h"
 #include "../util/math/conv.h"
 #include "../util/math/sdf.h"
-#include "../util/math/transform_3d.h"
+#include "../util/math/vector3.h"
 #include "../util/profiling.h"
 
 ZN_GODOT_FORWARD_DECLARE(class Callable);
@@ -64,11 +65,12 @@ float get_sdf_interpolated(const Volume_F &f, Vector3 pos) {
 // Standalone helper function to copy voxels from any 3D chunked container
 void copy_from_chunked_storage(
 		VoxelBuffer &dst_buffer,
-		Vector3i min_pos,
-		unsigned int block_size_po2,
-		uint32_t channels_mask,
+		const Vector3i min_pos,
+		const unsigned int block_size_po2,
+		const uint32_t channels_mask,
 		const VoxelBuffer *(*get_block_func)(void *, Vector3i),
-		void *get_block_func_ctx
+		void *get_block_func_ctx,
+		const bool with_metadata
 );
 
 // Standalone helper function to paste voxels to any 3D chunked container
@@ -175,6 +177,7 @@ struct SrcMasked_DstWritableBitArray {
 } // namespace paste_functors
 
 bool indices_to_bitarray_u16(Span<const int32_t> indices, DynamicBitset &bitarray);
+void indices_to_bitarray(Span<const uint8_t> indices, DynamicBitset &bitarray);
 
 template <typename FGetBlock>
 void paste_to_chunked_storage_masked_writable_list(
@@ -384,6 +387,10 @@ struct SdfBufferShape {
 		return interpolate_trilinear(buffer, buffer_size, lpos) * sdf_scale - isolevel;
 	}
 
+	inline bool is_inside(Vector3f pos) const {
+		return (*this)(pos) < 0;
+	}
+
 	inline const char *name() const {
 		return "SdfBufferShape";
 	}
@@ -460,7 +467,7 @@ struct TextureBlendSphereOp {
 			const float distance_from_radius = radius - math::sqrt(distance_squared);
 			const float target_weight =
 					tp.opacity * math::clamp(tp.sharpness * (distance_from_radius / radius), 0.f, 1.f);
-			blend_texture_packed_u16(tp.index, target_weight, indices, weights);
+			mixel4::blend_texture_packed_u16(tp.index, target_weight, indices, weights);
 		}
 	}
 };
@@ -475,7 +482,7 @@ struct TextureBlendOp {
 		if (sd <= 0) {
 			// TODO We don't know the full size of the shape so sharpness may be adjusted
 			const float target_weight = texture_params.opacity * math::clamp(-sd * texture_params.sharpness, 0.f, 1.f);
-			blend_texture_packed_u16(texture_params.index, target_weight, indices, weights);
+			mixel4::blend_texture_packed_u16(texture_params.index, target_weight, indices, weights);
 		}
 	}
 };
@@ -616,9 +623,7 @@ inline void write_box_in_chunked_storage_1_channel(
 		VoxelBuffer::ChannelId channel_id
 ) {
 	process_chunked_storage(
-			box,
-			block_access,
-			[&op, channel_id](VoxelBuffer &vb, const Box3i local_box, Vector3i origin) {
+			box, block_access, [&op, channel_id](VoxelBuffer &vb, const Box3i local_box, Vector3i origin) {
 				vb.write_box(local_box, channel_id, op, origin);
 			}
 	);

@@ -176,6 +176,7 @@
 					"blocked_lods": int
 				}
 				[/codeblock]
+				Times are in microseconds.
 			</description>
 		</method>
 		<method name="get_voxel_tool">
@@ -239,11 +240,15 @@
 		</method>
 	</methods>
 	<members>
+		<member name="cache_generated_blocks" type="bool" setter="set_cache_generated_blocks" getter="get_cache_generated_blocks" default="false" is_experimental="true" experimental="">
+			If enabled, streaming the terrain will keep generated voxel data in memory around viewers, even if it wasn't edited. This can speedup voxel queries on non-edited areas and allows [member VoxelStream.save_generator_output] to work, but increases memory usage significantly.
+			This option is not supported when [member full_load_mode_enabled] is enabled.
+		</member>
 		<member name="collision_layer" type="int" setter="set_collision_layer" getter="get_collision_layer" default="1">
 			Collision layer used by generated colliders. Check Godot documentation for more information.
 		</member>
 		<member name="collision_lod_count" type="int" setter="set_collision_lod_count" getter="get_collision_lod_count" default="0">
-			How many LOD levels are set to generate colliders, starting from LOD 0.
+			How many LOD levels are set to generate colliders, starting from LOD 0. Setting this property to 0 means all LODs have collision.
 		</member>
 		<member name="collision_margin" type="float" setter="set_collision_margin" getter="get_collision_margin" default="0.04">
 			Collision margin used by generated colliders. Note that it may depend on which physics engine is used under the hood, as some don't use margins.
@@ -348,7 +353,7 @@
 			Maximum distance viewers can have. If a viewer has a larger distance, it will be clamped. Note that this is only a hint and not an exact boundary. Terrain may load within that distance, but can continue beyond it, rounding up to block size of the biggest LOD.
 			If your terrain size is finite (like an island or planet) and you want to keep it in view, you may want to set this value to a very large number. This is mainly useful for infinite terrains where a cap is desired.
 		</member>
-		<member name="voxel_bounds" type="AABB" setter="set_voxel_bounds" getter="get_voxel_bounds" default="AABB(-5.36871e+08, -5.36871e+08, -5.36871e+08, 1.07374e+09, 1.07374e+09, 1.07374e+09)">
+		<member name="voxel_bounds" type="AABB" setter="set_voxel_bounds" getter="get_voxel_bounds" default="AABB(-536870900, -536870900, -536870900, 1073741800, 1073741800, 1073741800)">
 			Bounds within which volume data can exist (loaded or not), in voxels. By default, it is pseudo-infinite. If you make a planet, island or some sort of arena, you may want to choose a finite size.
 			Note, because this volume uses chunks with LOD, these bounds will snap to the closest chunk boundary.
 		</member>

@@ -6,6 +6,7 @@
 #include "../util/macros.h"
 #include "../util/memory/memory.h"
 #include "../util/string/format.h"
+#include "voxel_format.h"
 
 #include <limits>
 
@@ -25,6 +26,10 @@ void VoxelDataMap::create(unsigned int lod_index) {
 	clear();
 	// set_block_size_pow2(block_size_po2);
 	set_lod_index(lod_index);
+}
+
+void VoxelDataMap::set_format(const VoxelFormat format) {
+	_format = format;
 }
 
 // void VoxelDataMap::set_block_size_pow2(unsigned int p) {
@@ -51,15 +56,14 @@ int VoxelDataMap::get_voxel(Vector3i pos, unsigned int c) const {
 	Vector3i bpos = voxel_to_block(pos);
 	const VoxelDataBlock *block = get_block(bpos);
 	if (block == nullptr || !block->has_voxels()) {
-		return VoxelBuffer::get_default_value_static(c);
+		return _format.get_default_raw_value(static_cast<VoxelBuffer::ChannelId>(c));
 	}
 	return block->get_voxels_const().get_voxel(to_local(pos), c);
 }
 
 VoxelDataBlock *VoxelDataMap::create_default_block(Vector3i bpos) {
 	std::shared_ptr<VoxelBuffer> buffer = make_shared_instance<VoxelBuffer>(VoxelBuffer::ALLOCATOR_POOL);
-	buffer->create(get_block_size(), get_block_size(), get_block_size());
-	// buffer->set_default_values(_default_voxel);
+	buffer->create(Vector3iUtil::create(get_block_size()), &_format);
 #ifdef DEBUG_ENABLED
 	ZN_ASSERT_RETURN_V(!has_block(bpos), nullptr);
 #endif
@@ -89,8 +93,7 @@ float VoxelDataMap::get_voxel_f(Vector3i pos, unsigned int c) const {
 	const VoxelDataBlock *block = get_block(bpos);
 	// TODO The generator needs to be invoked if the block has no voxels
 	if (block == nullptr || !block->has_voxels()) {
-		// TODO Not valid for a float return value
-		return VoxelBuffer::get_default_value_static(c);
+		return constants::SDF_FAR_OUTSIDE;
 	}
 	Vector3i lpos = to_local(pos);
 	return block->get_voxels_const().get_voxel_f(lpos.x, lpos.y, lpos.z, c);
@@ -188,11 +191,12 @@ bool VoxelDataMap::is_block_surrounded(Vector3i pos) const {
 }
 
 void VoxelDataMap::copy(
-		Vector3i min_pos,
+		const Vector3i min_pos,
 		VoxelBuffer &dst_buffer,
-		unsigned int channels_mask,
+		const unsigned int channels_mask,
 		void *callback_data,
-		void (*gen_func)(void *, VoxelBuffer &, Vector3i)
+		void (*gen_func)(void *, VoxelBuffer &, Vector3i),
+		const bool with_metadata
 ) const {
 	// TODO Reimplement using `copy_from_chunked_storage`?
 
@@ -224,12 +228,20 @@ void VoxelDataMap::copy(
 						);
 					}
 
+					if (with_metadata) {
+						dst_buffer.copy_voxel_metadata_in_area(
+								src_buffer,
+								Box3i::from_min_max(min_pos - src_block_origin, src_buffer.get_size()),
+								Vector3i()
+						);
+					}
+
 				} else if (gen_func != nullptr) {
 					const Box3i box = Box3i(bpos << get_block_size_pow2(), block_size_v)
 											  .clipped(Box3i(min_pos, dst_buffer.get_size()));
 
-					// TODO Format?
 					VoxelBuffer temp(VoxelBuffer::ALLOCATOR_POOL);
+					temp.copy_format(dst_buffer);
 					temp.create(box.size);
 					gen_func(callback_data, temp, box.position);
 
@@ -239,12 +251,20 @@ void VoxelDataMap::copy(
 						);
 					}
 
+					if (with_metadata) {
+						// Not sure if it is reasonable to have a workflow with on-the-fly generation that also
+						// generates voxel metadata?
+						dst_buffer.copy_voxel_metadata_in_area(
+								temp, Box3i(Vector3i(), temp.get_size()), box.position - min_pos
+						);
+					}
+
 				} else {
 					for (const uint8_t channel : channels) {
 						// For now, inexistent blocks default to hardcoded defaults, corresponding to "empty space".
 						// If we want to change this, we may have to add an API for that.
 						dst_buffer.fill_area(
-								VoxelBuffer::get_default_value_static(channel),
+								_format.get_default_raw_value(static_cast<VoxelBuffer::ChannelId>(channel)),
 								src_block_origin - min_pos,
 								src_block_origin - min_pos + block_size_v,
 								channel
@@ -257,27 +277,40 @@ void VoxelDataMap::copy(
 }
 
 void VoxelDataMap::paste(
-		Vector3i min_pos,
+		const Vector3i min_pos,
 		const VoxelBuffer &src_buffer,
-		unsigned int channels_mask,
-		bool create_new_blocks
+		const unsigned int channels_mask,
+		const bool create_new_blocks,
+		const bool with_metadata
 ) {
-	paste_masked(min_pos, src_buffer, channels_mask, false, 0, 0, false, 0, Span<const int32_t>(), create_new_blocks);
+	paste_masked(
+			min_pos,
+			src_buffer,
+			channels_mask,
+			false,
+			0,
+			0,
+			false,
+			0,
+			Span<const int32_t>(),
+			create_new_blocks,
+			with_metadata
+	);
 }
 
-void VoxelDataMap::paste_masked( //
-		Vector3i min_pos, //
-		const VoxelBuffer &src_buffer, //
-		unsigned int channels_mask, //
-		bool use_src_mask, //
-		uint8_t src_mask_channel, //
-		uint64_t src_mask_value, //
-		bool use_dst_mask, //
-		uint8_t dst_mask_channel, //
-		Span<const int32_t> dst_writable_values, //
-		bool create_new_blocks //
+void VoxelDataMap::paste_masked(
+		const Vector3i min_pos,
+		const VoxelBuffer &src_buffer,
+		const unsigned int channels_mask,
+		const bool use_src_mask,
+		const uint8_t src_mask_channel,
+		const uint64_t src_mask_value,
+		const bool use_dst_mask,
+		const uint8_t dst_mask_channel,
+		const Span<const int32_t> dst_writable_values,
+		const bool create_new_blocks,
+		const bool with_metadata
 ) {
-	//
 	if (use_dst_mask && !use_src_mask) {
 		ZN_PRINT_ERROR("Destination mask without source mask is not implemented");
 		return;
@@ -294,7 +327,7 @@ void VoxelDataMap::paste_masked( //
 			VoxelBuffer::mask_to_channels_list(channels_mask);
 
 	DynamicBitset bitarray;
-	if (dst_writable_values.size() == 1) {
+	if (dst_writable_values.size() > 1) {
 		ZN_ASSERT_RETURN(indices_to_bitarray_u16(dst_writable_values, bitarray));
 	}
 
@@ -302,8 +335,6 @@ void VoxelDataMap::paste_masked( //
 	for (bpos.z = min_block_pos.z; bpos.z < max_block_pos.z; ++bpos.z) {
 		for (bpos.x = min_block_pos.x; bpos.x < max_block_pos.x; ++bpos.x) {
 			for (bpos.y = min_block_pos.y; bpos.y < max_block_pos.y; ++bpos.y) {
-				const bool with_metadata = true;
-
 				VoxelDataBlock *block = get_block(bpos);
 
 				if (block == nullptr) {
@@ -327,39 +358,39 @@ void VoxelDataMap::paste_masked( //
 						if (dst_writable_values.size() == 1) {
 							zylann::voxel::paste_src_masked_dst_writable_value(
 									to_span(channel_indices),
-									src_buffer, //
-									src_mask_channel, //
-									src_mask_value, //
-									dst_buffer, //
-									dst_base_pos, //
-									dst_mask_channel, //
-									dst_writable_values[0], //
-									with_metadata //
+									src_buffer,
+									src_mask_channel,
+									src_mask_value,
+									dst_buffer,
+									dst_base_pos,
+									dst_mask_channel,
+									dst_writable_values[0],
+									with_metadata
 							);
 
 						} else {
 							zylann::voxel::paste_src_masked_dst_writable_bitarray(
 									to_span(channel_indices),
-									src_buffer, //
-									src_mask_channel, //
-									src_mask_value, //
-									dst_buffer, //
-									dst_base_pos, //
-									dst_mask_channel, //
-									bitarray, //
-									with_metadata //
+									src_buffer,
+									src_mask_channel,
+									src_mask_value,
+									dst_buffer,
+									dst_base_pos,
+									dst_mask_channel,
+									bitarray,
+									with_metadata
 							);
 						}
 
 					} else {
 						zylann::voxel::paste_src_masked(
 								to_span(channel_indices),
-								src_buffer, //
-								src_mask_channel, //
-								src_mask_value, //
-								dst_buffer, //
-								dst_base_pos, //
-								with_metadata //
+								src_buffer,
+								src_mask_channel,
+								src_mask_value,
+								dst_buffer,
+								dst_base_pos,
+								with_metadata
 						);
 					}
 
