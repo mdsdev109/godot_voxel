@@ -901,8 +901,14 @@ void VoxelLodTerrainUpdateTask::run(ThreadedTaskContext &ctx) {
 	ProfilingClock profiling_clock_total;
 
 	// TODO This is not a good name, "streaming" has several meanings. Rename "can_load"?
-	const bool stream_enabled = (stream.is_valid() || generator.is_valid()) &&
+	const bool can_load = (settings.automatic_loading &&
+						  (stream.is_valid() || generator.is_valid())) &&
+						  (Engine::get_singleton()->is_editor_hint() == false || settings.run_stream_in_editor);
+	
+	/*
+	(stream.is_valid() || generator.is_valid()) &&
 			(Engine::get_singleton()->is_editor_hint() == false || settings.run_stream_in_editor);
+	*/
 
 	const unsigned int lod_count = data.get_lod_count();
 
@@ -944,7 +950,7 @@ void VoxelLodTerrainUpdateTask::run(ThreadedTaskContext &ctx) {
 	profiling_clock.restart();
 	if (settings.streaming_system == VoxelLodTerrainUpdateData::STREAMING_SYSTEM_LEGACY_OCTREE) {
 		process_octree_streaming(
-				state, data, _viewer_pos, data_blocks_to_save, data_blocks_to_load, settings, stream_enabled
+				state, data, _viewer_pos, data_blocks_to_save, data_blocks_to_load, settings, can_load
 		);
 	} else {
 		process_clipbox_streaming(
@@ -955,7 +961,7 @@ void VoxelLodTerrainUpdateTask::run(ThreadedTaskContext &ctx) {
 				data_blocks_to_save,
 				data_blocks_to_load,
 				settings,
-				stream_enabled,
+				can_load,
 				_meshing_dependency->mesher.is_valid()
 		);
 	}
@@ -978,7 +984,7 @@ void VoxelLodTerrainUpdateTask::run(ThreadedTaskContext &ctx) {
 	{
 		ZN_PROFILE_SCOPE_NAMED("IO requests");
 		// It's possible the user didn't set a stream yet, or it is turned off
-		if (stream_enabled) {
+		if (can_load) {
 			const unsigned int data_block_size = data.get_block_size();
 
 			// This part would still "work" without that check because `data_blocks_to_load` would be empty,

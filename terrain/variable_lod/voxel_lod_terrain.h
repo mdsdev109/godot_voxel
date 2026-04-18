@@ -7,12 +7,15 @@
 #include "../../util/containers/std_map.h"
 #include "../../util/containers/std_unordered_map.h"
 #include "../../util/containers/std_vector.h"
+#include "../../util/godot/memory.h"
 #include "../voxel_mesh_map.h"
 #include "../voxel_node.h"
+#include "../voxel_data_block_enter_info.h"
 #include "lod_octree.h"
 #include "shader_material_pool_vlt.h"
 #include "voxel_lod_terrain_update_data.h"
 #include "voxel_mesh_block_vlt.h"
+#include "voxel_lod_terrain_multiplayer_synchronizer.h"
 
 #ifdef TOOLS_ENABLED
 #include "../../util/godot/debug_renderer.h"
@@ -23,6 +26,7 @@ namespace zylann::voxel {
 
 class VoxelTool;
 class VoxelStream;
+class VoxelLodTerrainMultiplayerSynchronizer;
 class VoxelSaveCompletionTracker;
 #ifdef VOXEL_ENABLE_INSTANCER
 class VoxelInstancer;
@@ -52,6 +56,9 @@ public:
 
 	int get_view_distance() const;
 	void set_view_distance(int p_distance_in_voxels);
+
+	void set_automatic_loading_enabled(bool enable);
+	bool is_automatic_loading_enabled() const;
 
 	void set_lod_distance(float p_lod_distance);
 	float get_lod_distance() const;
@@ -273,6 +280,9 @@ public:
 		return _streaming_dependency;
 	}
 
+	void get_viewers_in_area(StdVector<ViewerID> &out_viewer_ids, Box3i voxel_box) const;
+
+
 	Array get_mesh_block_surface(
 			const Vector3i block_pos,
 			const int lod_index,
@@ -294,8 +304,18 @@ public:
 	}
 
 	void get_lod_distances(Span<float> distances);
+	// Creates or overrides whatever block data there is at the given position.
+	// The use case is multiplayer, client-side.
+	// If no local viewer is actually in range, the data will not be applied and the function returns `false`.
+	bool try_set_block_data(uint32_t lod_index, Vector3i position, std::shared_ptr<VoxelBuffer> &voxel_data);
+
+	void set_multiplayer_synchronizer(VoxelLodTerrainMultiplayerSynchronizer *synchronizer);
+	const VoxelLodTerrainMultiplayerSynchronizer *get_multiplayer_synchronizer() const;
 
 	void on_format_changed() override;
+
+	void notify_data_block_enter(const VoxelDataBlock &block, Vector3i bpos, ViewerID viewer_id);
+
 
 protected:
 	void _notification(int p_what);
@@ -369,6 +389,9 @@ private:
 	static void _bind_methods();
 
 private:
+
+	bool _b_try_set_block_data(uint32_t lod_index, Vector3i position, Ref<godot::VoxelBuffer> voxel_data);
+
 	VolumeID _volume_id;
 	ProcessCallback _process_callback = PROCESS_CALLBACK_IDLE;
 
@@ -409,6 +432,7 @@ private:
 	float _collision_margin = constants::DEFAULT_COLLISION_MARGIN;
 	int _collision_update_delay = 0;
 	FixedArray<StdVector<Vector3i>, constants::MAX_LOD> _deferred_collision_updates_per_lod;
+	zylann::godot::ObjectUniquePtr<VoxelDataBlockEnterInfo> _data_block_enter_info_obj;
 
 	float _lod_fade_duration = 0.f;
 	// Note, direct pointers to mesh blocks should be safe because these blocks are always destroyed from the same
@@ -446,6 +470,7 @@ private:
 	};
 
 	FixedArray<StdUnorderedMap<Vector3i, RefCount>, constants::MAX_LOD> _queued_main_thread_mesh_updates;
+	VoxelLodTerrainMultiplayerSynchronizer *_multiplayer_synchronizer = nullptr;
 
 #ifdef TOOLS_ENABLED
 	bool _debug_draw_enabled = false;

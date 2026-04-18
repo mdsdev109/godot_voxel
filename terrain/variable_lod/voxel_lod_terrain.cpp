@@ -15,6 +15,8 @@
 #include "../../util/godot/classes/concave_polygon_shape_3d.h"
 #include "../../util/godot/classes/engine.h"
 #include "../../util/godot/classes/mesh_instance_3d.h"
+#include "../../util/godot/classes/multiplayer_api.h"
+#include "../../util/godot/classes/multiplayer_peer.h"
 #include "../../util/godot/classes/node.h"
 #include "../../util/godot/classes/packed_scene.h"
 #include "../../util/godot/classes/resource_saver.h"
@@ -34,6 +36,7 @@
 #include "../../util/thread/rw_lock.h"
 #include "../free_mesh_task.h"
 #include "../voxel_save_completion_tracker.h"
+#include "voxel_lod_terrain_multiplayer_synchronizer.h"
 #include "voxel_lod_terrain_update_task.h"
 
 #ifdef VOXEL_ENABLE_SMOOTH_MESHING
@@ -965,6 +968,19 @@ int VoxelLodTerrain::get_lod_count() const {
 	return _data->get_lod_count();
 }
 
+void VoxelLodTerrain::get_viewers_in_area(StdVector<ViewerID> &out_viewer_ids, Box3i voxel_box) const {
+	const Box3i block_box = voxel_box.downscaled(get_data_block_size());
+	VoxelLodTerrainUpdateData::State &state = _update_data->state;
+
+	for (auto it = state.clipbox_streaming.paired_viewers.begin(); it != state.clipbox_streaming.paired_viewers.end(); ++it) {
+		const VoxelLodTerrainUpdateData::PairedViewer &viewer = *it;
+
+		if (viewer.state.data_box_per_lod[0].intersects(block_box)) {
+			out_viewer_ids.push_back(viewer.id);
+		}
+	}
+}
+
 void VoxelLodTerrain::set_generate_collisions(bool enabled) {
 	_update_data->settings.collision_enabled = enabled;
 }
@@ -1765,6 +1781,19 @@ void VoxelLodTerrain::apply_data_block_response(VoxelEngine::BlockDataOutput &ob
 		return;
 	}
 
+	Vector3i bpos = ob.position;
+	if (_multiplayer_synchronizer != nullptr && _multiplayer_synchronizer->is_server())
+	{
+		VoxelEngine::get_singleton().for_each_viewer( //
+				[this, &block, &bpos](ViewerID id, const VoxelEngine::Viewer &viewer) { //
+					if (viewer.requires_data_block_notifications)
+					{
+						notify_data_block_enter(block, bpos, id);
+					}
+				}
+		);
+	}
+	
 	const bool inserted = _data->try_set_block(ob.position, block);
 	// TODO Might not ignore these blocks in the future, see `VoxelTerrain`
 	if (!inserted) {
@@ -2720,6 +2749,36 @@ void VoxelLodTerrain::remesh_all_blocks() {
 	}
 }
 
+void VoxelLodTerrain::set_automatic_loading_enabled(bool enable) {
+
+	//enable = (_multiplayer_synchronizer == nullptr || _multiplayer_synchronizer->is_server()) && enable;
+
+	if (enable == _update_data->settings.automatic_loading) {
+		return;
+	}
+
+	_update_data->wait_for_end_of_task();
+	_update_data->settings.automatic_loading = enable;
+
+}
+
+bool VoxelLodTerrain::is_automatic_loading_enabled() const {
+	return _update_data->settings.automatic_loading;
+}
+
+void VoxelLodTerrain::set_multiplayer_synchronizer(VoxelLodTerrainMultiplayerSynchronizer *synchronizer) {
+	_multiplayer_synchronizer = synchronizer;
+	/*
+	if (is_automatic_loading_enabled()) {
+		set_automatic_loading_enabled(true);
+	}
+	*/
+}
+
+const VoxelLodTerrainMultiplayerSynchronizer *VoxelLodTerrain::get_multiplayer_synchronizer() const {
+	return _multiplayer_synchronizer;
+}
+
 bool VoxelLodTerrain::is_area_meshed(const Box3i &box_in_voxels, unsigned int lod_index) const {
 	const Box3i box_in_blocks = box_in_voxels.downscaled(1 << (get_mesh_block_size_pow2() + lod_index));
 	// We have to check this separate map instead of the mesh map, because the mesh map will not contain blocks in areas
@@ -3113,6 +3172,193 @@ AABB VoxelLodTerrain::_b_get_voxel_bounds() const {
 	const Box3i b = get_voxel_bounds();
 	return AABB(b.position, b.size);
 }
+
+// Sets voxel data of a block, discarding existing data if any.
+// If the given block coordinates are not inside any viewer's area, this function won't do anything and return
+// false. If a block is already loading or generating at this position, it will be cancelled.
+bool VoxelLodTerrain::try_set_block_data(uint32_t lod_index, Vector3i position, std::shared_ptr<VoxelBuffer> &voxel_data) {
+
+	ZN_PROFILE_SCOPE();
+	ERR_FAIL_COND_V(voxel_data == nullptr, false);
+
+	const Vector3i expected_block_size = Vector3iUtil::create(_data->get_block_size());
+	ERR_FAIL_COND_V_MSG(
+			voxel_data->get_size() != expected_block_size,
+			false,
+			String("Block size is different from expected size. "
+				   "Expected {0}, got {1}")
+					.format(varray(expected_block_size, voxel_data->get_size()))
+	);
+
+	if (lod_index >= get_lod_count()) {
+		// That block was requested at a time where LOD was higher... drop it
+		++_stats.dropped_block_loads;
+		return false;
+	}
+
+	VoxelLodTerrainUpdateData::Lod &lod = _update_data->state.lods[lod_index];
+	RefCount viewers;
+
+	// Prefer viewers refcount from loading_blocks if present (loader path),
+	// otherwise derive it from currently paired viewers (client case).
+	if (_data->is_streaming_enabled()) {
+		MutexLock lock(lod.loading_blocks_mutex);
+		auto it = lod.loading_blocks.find(position);
+		if (it != lod.loading_blocks.end()) {
+			viewers = it->second.viewers;
+		}
+	}
+
+	// If we don't have a refcount from loading_blocks, compute one from paired viewers
+	if (viewers.get() == 0) {
+		const VoxelLodTerrainUpdateData::ClipboxStreamingState &cs = _update_data->state.clipbox_streaming;
+		for (const VoxelLodTerrainUpdateData::PairedViewer &pv : cs.paired_viewers) {
+			if (pv.state.data_box_per_lod[lod_index].contains(position)) {
+				viewers.add();
+			}
+		}
+
+		// If still zero, do a conservative test against the raw viewers list. This handles timing
+		// cases where paired viewers boxes haven't been computed yet or are empty.
+		if (viewers.get() == 0) {
+			const Transform3D world_to_local = get_global_transform().affine_inverse();
+			const float view_distance_scale = world_to_local.basis.xform(Vector3(1, 0, 0)).length();
+
+			const int lod_block_size = _data->get_block_size() << lod_index;
+			const Box3i block_voxel_box = Box3i(position * lod_block_size, Vector3iUtil::create(lod_block_size));
+
+			for (const auto &pv : _update_data->viewers) {
+				const VoxelEngine::Viewer &viewer = pv.second;
+				if (!(viewer.require_visuals || viewer.require_collisions)) {
+					continue;
+				}
+
+				const Vector3 local_pos = world_to_local.xform(viewer.world_position);
+				const int h = static_cast<int>(static_cast<float>(viewer.view_distances.horizontal) * view_distance_scale);
+				const int v = static_cast<int>(static_cast<float>(viewer.view_distances.vertical) * view_distance_scale);
+				const Vector3i minp = math::floor_to_int(local_pos) - Vector3i(h, v, h);
+				const Vector3i size = Vector3i(2 * h + 1, 2 * v + 1, 2 * h + 1);
+				const Box3i viewer_box(minp, size);
+
+				if (viewer_box.intersects(block_voxel_box)) {
+					viewers.add();
+				}
+			}
+		}
+	}
+
+	// If no viewer wants this block, drop it (API contract: only insert blocks inside a viewer area)
+	if (viewers.get() == 0) {
+		ZN_PRINT_ERROR("Failed to get any viewer for the block to set");
+		++_stats.dropped_block_loads;
+		return false;
+	}
+
+	VoxelDataBlock block(voxel_data, lod_index);
+	block.set_edited(false);
+	block.viewers = viewers;
+
+	if (block.has_voxels() && block.get_voxels_const().get_size() != Vector3iUtil::create(_data->get_block_size())) {
+		// Voxel block size is incorrect, drop it
+		ZN_PRINT_ERROR("Block is different from expected size");
+		++_stats.dropped_block_loads;
+		return false;
+	}
+	
+	// Insert or replace existing block. If another thread already created a placeholder
+	// for this block (race with the update task), replace it instead of treating the load as dropped.
+	const bool inserted = _data->try_set_block(position, block, [position](VoxelDataBlock &existing, const VoxelDataBlock &incoming) {
+	#ifdef DEBUG_ENABLED
+		ZN_PRINT_VERBOSE(format("Replacing existing data block {}", position));
+	#endif
+		existing.set_voxels(incoming.get_voxels_shared());
+		existing.set_edited(incoming.is_edited());
+		// Adopt viewers count from incoming data
+		existing.viewers = incoming.viewers;
+	});
+	// If it was inserted, log it in debug builds
+	if (inserted) {
+	#ifdef DEBUG_ENABLED
+		ZN_PRINT_VERBOSE(format("Inserted data block {}", position));
+	#endif
+	}
+
+	{
+		// We have to do this after adding the block to the map, otherwise there would be a small period of time where
+		// the threaded update task could request the block again needlessly
+		// TODO In full load mode, this might be unnecessary, since it's not populated
+		MutexLock lock(lod.loading_blocks_mutex);
+		lod.loading_blocks.erase(ob.position);
+	}
+
+
+	if (_data->is_streaming_enabled() &&
+		_update_data->settings.streaming_system == VoxelLodTerrainUpdateData::STREAMING_SYSTEM_CLIPBOX) {
+		VoxelLodTerrainUpdateData::ClipboxStreamingState &cs = _update_data->state.clipbox_streaming;
+		MutexLock mlock(cs.loaded_data_blocks_mutex);
+		cs.loaded_data_blocks.push_back(VoxelLodTerrainUpdateData::BlockLocation{ position, static_cast<uint8_t>(lod_index) });
+	}
+
+	// if (_instancer != nullptr && ob.instances != nullptr) {
+	// 	_instancer->on_data_block_loaded(ob.position, ob.lod_index, std::move(ob.instances));
+	// }
+
+	return true;
+}
+
+
+bool VoxelLodTerrain::_b_try_set_block_data(uint32_t lod_index, Vector3i position, Ref<godot::VoxelBuffer> voxel_data) {
+	ERR_FAIL_COND_V(voxel_data.is_null(), false);
+	std::shared_ptr<VoxelBuffer> buffer = voxel_data->get_buffer_shared();
+
+#ifdef DEBUG_ENABLED
+	// It is not allowed to call this function at two different positions with the same voxel buffer
+	const StringName &key = VoxelStringNames::get_singleton()._voxel_debug_vt_position;
+	if (voxel_data->has_meta(key)) {
+		const Vector3i meta_pos = voxel_data->get_meta(key);
+		ERR_FAIL_COND_V_MSG(
+				meta_pos != position,
+				false,
+				String("Setting the same {0} at different positions is not supported")
+						.format(varray(godot::VoxelBuffer::get_class_static()))
+		);
+	} else {
+		voxel_data->set_meta(key, position);
+	}
+#endif
+
+	return try_set_block_data(lod_index, position, buffer);
+}
+
+
+// TODO It is unclear yet if this API will stay. I have a feeling it might consume a lot of CPU
+void VoxelLodTerrain::notify_data_block_enter(const VoxelDataBlock &block, Vector3i bpos, ViewerID viewer_id) {
+	if (!VoxelEngine::get_singleton().viewer_exists(viewer_id)) {
+		// The viewer might have been removed between the moment we requested the block and the moment we finished
+		// loading it
+		return;
+	}
+	if (_data_block_enter_info_obj == nullptr) {
+		_data_block_enter_info_obj = zylann::godot::make_unique<VoxelDataBlockEnterInfo>();
+	}
+	const int network_peer_id = VoxelEngine::get_singleton().get_viewer_network_peer_id(viewer_id);
+	_data_block_enter_info_obj->network_peer_id = network_peer_id;
+	_data_block_enter_info_obj->voxel_block = block;
+	_data_block_enter_info_obj->block_position = bpos;
+
+	/*
+	if (!GDVIRTUAL_CALL(_on_data_block_entered, _data_block_enter_info_obj.get()) &&
+		_multiplayer_synchronizer == nullptr) {
+		WARN_PRINT_ONCE("VoxelLodTerrain::_on_data_block_entered is unimplemented!");
+	}
+	*/
+
+	if (_multiplayer_synchronizer != nullptr && !Engine::get_singleton()->is_editor_hint() &&
+		network_peer_id != MultiplayerPeer::TARGET_PEER_SERVER && _multiplayer_synchronizer->is_server()) {
+		_multiplayer_synchronizer->send_block(network_peer_id, block, bpos);
+	}
+}
+
 
 // DEBUG LAND
 
@@ -3907,6 +4153,11 @@ void VoxelLodTerrain::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_cache_generated_blocks", "enabled"), &Self::set_cache_generated_blocks);
 	ClassDB::bind_method(D_METHOD("get_cache_generated_blocks"), &Self::get_cache_generated_blocks);
 
+	ClassDB::bind_method(D_METHOD("try_set_block_data", "lod_index", "position", "voxels"), &Self::_b_try_set_block_data);
+	
+	ClassDB::bind_method(D_METHOD("set_automatic_loading_enabled", "enable"), &Self::set_automatic_loading_enabled);
+	ClassDB::bind_method(D_METHOD("is_automatic_loading_enabled"), &Self::is_automatic_loading_enabled);
+
 	// Debug
 
 	ClassDB::bind_method(D_METHOD("get_statistics"), &Self::_b_get_statistics);
@@ -4037,6 +4288,27 @@ void VoxelLodTerrain::_bind_methods() {
 			"get_collision_update_delay"
 	);
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "collision_margin"), "set_collision_margin", "get_collision_margin");
+
+	ADD_GROUP("Networking", "");
+	/*
+	ADD_PROPERTY(
+			PropertyInfo(Variant::BOOL, "block_enter_notification_enabled"),
+			"set_block_enter_notification_enabled",
+			"is_block_enter_notification_enabled"
+	);
+
+	ADD_PROPERTY(
+			PropertyInfo(Variant::BOOL, "area_edit_notification_enabled"),
+			"set_area_edit_notification_enabled",
+			"is_area_edit_notification_enabled"
+	);
+*/
+	// This may be set to false in multiplayer designs where the server is the one sending the blocks
+	ADD_PROPERTY(
+			PropertyInfo(Variant::BOOL, "automatic_loading_enabled"),
+			"set_automatic_loading_enabled",
+			"is_automatic_loading_enabled"
+	);
 
 	ADD_GROUP("Advanced", "");
 
