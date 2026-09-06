@@ -1,8 +1,10 @@
 # godot_voxel fork (branch `planet`)
 
-Instructions are in **[AGENTS.md](AGENTS.md)** beside this file. Read it before changing
-anything here.
+@AGENTS.md
 
-- This is a **separate git repository** from the Godot fork that contains it. Commit here.
-- The game project is `C:\Users\mschw\Home\Godot\Projects\planet-demo`; its `docs/` explain
-  what the voxel work is for.
+The file above is imported automatically: what this fork adds, why `PlanetNoise3D` exists, and
+how to run the planet field tests that live here.
+
+This is a **separate git repository** from the Godot fork containing it. Commit here, not there.
+The game project is `C:\Users\mschw\Home\Godot\Projects\planet-demo`; its `docs/` explain what
+the voxel work is ultimately for.
