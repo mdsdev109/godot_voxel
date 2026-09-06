@@ -83,6 +83,7 @@ VoxelStringNames::VoxelStringNames() {
 
 	_rpc_receive_blocks = StringName("_rpc_receive_blocks");
 	_rpc_receive_area = StringName("_rpc_receive_area");
+	_rpc_request_blocks = StringName("_rpc_request_blocks");
 
 	unnamed = StringName("unnamed");
 	air = StringName("air");

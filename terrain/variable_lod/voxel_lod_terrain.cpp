@@ -32,8 +32,10 @@
 #include "../../util/tasks/async_dependency_tracker.h"
 #include "../../util/thread/mutex.h"
 #include "../../util/thread/rw_lock.h"
+#include "../../util/godot/classes/multiplayer_peer.h"
 #include "../free_mesh_task.h"
 #include "../voxel_save_completion_tracker.h"
+#include "voxel_lod_terrain_multiplayer_synchronizer.h"
 #include "voxel_lod_terrain_update_task.h"
 
 #ifdef VOXEL_ENABLE_SMOOTH_MESHING
@@ -618,6 +620,14 @@ void VoxelLodTerrain::post_edit_area(Box3i p_box, bool update_mesh) {
 		MutexLock lock(_update_data->state.edit_notifications.mutex);
 		_data->mark_area_modified(p_box, &_update_data->state.edit_notifications.edited_blocks_lod0, update_mesh);
 		_update_data->state.edit_notifications.edited_voxel_areas_lod0.push_back(p_box);
+	}
+
+	if (_multiplayer_synchronizer != nullptr && !Engine::get_singleton()->is_editor_hint() &&
+		_multiplayer_synchronizer->is_server()) {
+		// TODO This is not efficient when the user does many individual modifications in a specific area.
+		// We would either have to batch modified areas somehow, or expose a transactional API to the user
+		// (begin(area), edit in area, end(area))
+		_multiplayer_synchronizer->send_area(p_box);
 	}
 
 #ifdef TOOLS_ENABLED
@@ -1273,6 +1283,20 @@ void VoxelLodTerrain::process(float delta) {
 
 		apply_main_thread_update_tasks();
 
+		// Update multiplayer settings while the update task isn't running.
+		// In the editor, behave as if there is no multiplayer.
+		{
+			bool multiplayer_server = false;
+			bool block_loading_enabled = true;
+			if (_multiplayer_synchronizer != nullptr && !Engine::get_singleton()->is_editor_hint()) {
+				multiplayer_server = _multiplayer_synchronizer->is_server();
+				// Multiplayer clients don't load or generate blocks themselves, they receive them from the server
+				block_loading_enabled = multiplayer_server;
+			}
+			_update_data->settings.multiplayer_server = multiplayer_server;
+			_update_data->settings.block_loading_enabled = block_loading_enabled;
+		}
+
 		// Get viewer location in voxel space
 		const Vector3 viewer_pos = get_local_viewer_pos();
 
@@ -1356,6 +1380,9 @@ void VoxelLodTerrain::apply_main_thread_update_tasks() {
 		}
 		lod.quick_reloading_blocks.clear();
 	}
+
+	// Multiplayer: refresh viewer box snapshots and send deferred block events to remote peers
+	process_multiplayer_server_block_events();
 
 	for (unsigned int lod_index = 0; lod_index < lod_count; ++lod_index) {
 		VoxelLodTerrainUpdateData::Lod &lod = _update_data->state.lods[lod_index];
@@ -1786,12 +1813,17 @@ void VoxelLodTerrain::apply_data_block_response(VoxelEngine::BlockDataOutput &ob
 		return;
 	}
 
+	StdVector<ViewerID> viewers_to_notify;
 	{
 		// We have to do this after adding the block to the map, otherwise there would be a small period of time where
 		// the threaded update task could request the block again needlessly
 		// TODO In full load mode, this might be unnecessary, since it's not populated
 		MutexLock lock(lod.loading_blocks_mutex);
-		lod.loading_blocks.erase(ob.position);
+		auto loading_block_it = lod.loading_blocks.find(ob.position);
+		if (loading_block_it != lod.loading_blocks.end()) {
+			viewers_to_notify = std::move(loading_block_it->second.viewers_to_notify);
+			lod.loading_blocks.erase(loading_block_it);
+		}
 	}
 
 	if (_data->is_streaming_enabled() &&
@@ -1801,9 +1833,407 @@ void VoxelLodTerrain::apply_data_block_response(VoxelEngine::BlockDataOutput &ob
 		cs.loaded_data_blocks.push_back(VoxelLodTerrainUpdateData::BlockLocation{ ob.position, ob.lod_index });
 	}
 
+	// Multiplayer: send the block to remote viewers that were waiting for it to load
+	for (const ViewerID viewer_id : viewers_to_notify) {
+		notify_data_block_enter(
+				block.has_voxels() ? &block.get_voxels_const() : nullptr, ob.position, ob.lod_index, viewer_id
+		);
+	}
+
 	// if (_instancer != nullptr && ob.instances != nullptr) {
 	// 	_instancer->on_data_block_loaded(ob.position, ob.lod_index, std::move(ob.instances));
 	// }
+}
+
+void VoxelLodTerrain::set_multiplayer_synchronizer(VoxelLodTerrainMultiplayerSynchronizer *synchronizer) {
+	_multiplayer_synchronizer = synchronizer;
+}
+
+const VoxelLodTerrainMultiplayerSynchronizer *VoxelLodTerrain::get_multiplayer_synchronizer() const {
+	return _multiplayer_synchronizer;
+}
+
+void VoxelLodTerrain::get_viewers_in_area(StdVector<ViewerID> &out_viewer_ids, Box3i voxel_box) const {
+	const Box3i block_box = voxel_box.downscaled(get_data_block_size());
+
+	for (const PairedViewerSnapshot &snapshot : _paired_viewer_snapshots) {
+		if (snapshot.data_box_per_lod[0].intersects(block_box)) {
+			out_viewer_ids.push_back(snapshot.id);
+		}
+	}
+}
+
+void VoxelLodTerrain::get_missing_data_blocks_for_local_viewers(
+		StdVector<VoxelLodTerrainUpdateData::BlockLocation> &out_blocks,
+		const unsigned int max_count
+) const {
+	ZN_PROFILE_SCOPE();
+	if (!_data->is_streaming_enabled()) {
+		return;
+	}
+	// LOD0 first: it is what carries collision, so a hole there is what drops a player through the world, while a
+	// hole at LOD3 is a cosmetic pop. Under a budget, the near blocks are the ones worth spending it on.
+	const unsigned int lod_count = get_lod_count();
+	static thread_local StdVector<Vector3i> tls_missing;
+
+	for (unsigned int lod_index = 0; lod_index < lod_count; ++lod_index) {
+		if (out_blocks.size() >= max_count) {
+			return;
+		}
+		Box3i box;
+		bool any = false;
+		for (const PairedViewerSnapshot &snapshot : _paired_viewer_snapshots) {
+			const Box3i &viewer_box = snapshot.data_box_per_lod[lod_index];
+			if (viewer_box.is_empty()) {
+				continue;
+			}
+			if (any) {
+				box.merge_with(viewer_box);
+			} else {
+				box = viewer_box;
+				any = true;
+			}
+		}
+		if (!any) {
+			continue;
+		}
+		tls_missing.clear();
+		_data->get_missing_blocks_in_area(box, lod_index, tls_missing, max_count - out_blocks.size());
+		for (const Vector3i bpos : tls_missing) {
+			out_blocks.push_back(
+					VoxelLodTerrainUpdateData::BlockLocation{ bpos, static_cast<uint8_t>(lod_index) }
+			);
+		}
+	}
+}
+
+bool VoxelLodTerrain::is_data_block_in_peer_view(
+		const int peer_id,
+		const Vector3i bpos,
+		const unsigned int lod_index
+) const {
+	if (peer_id <= MultiplayerPeer::TARGET_PEER_SERVER || lod_index >= get_lod_count()) {
+		return false;
+	}
+	for (const PairedViewerSnapshot &snapshot : _paired_viewer_snapshots) {
+		if (snapshot.network_peer_id == peer_id && snapshot.data_box_per_lod[lod_index].contains(bpos)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool VoxelLodTerrain::resend_data_block_to_peer(
+		const int peer_id,
+		const Vector3i bpos,
+		const unsigned int lod_index
+) {
+	if (_multiplayer_synchronizer == nullptr || !_data->has_block(bpos, lod_index)) {
+		return false;
+	}
+	std::shared_ptr<VoxelBuffer> voxels;
+	_data->get_blocks_with_voxel_data(
+			Box3i(bpos, Vector3i(1, 1, 1)), lod_index, Span<std::shared_ptr<VoxelBuffer>>(&voxels, 1)
+	);
+	// A null buffer is a legitimate answer, not a failure: it means "this block is unedited, generate it locally".
+	_multiplayer_synchronizer->send_block(peer_id, voxels.get(), bpos, lod_index);
+	return true;
+}
+
+void VoxelLodTerrain::notify_data_block_enter(
+		const VoxelBuffer *voxels,
+		Vector3i bpos,
+		unsigned int lod_index,
+		ViewerID viewer_id
+) {
+	if (_multiplayer_synchronizer == nullptr || Engine::get_singleton()->is_editor_hint() ||
+		!_multiplayer_synchronizer->is_server()) {
+		return;
+	}
+	if (!VoxelEngine::get_singleton().viewer_exists(viewer_id)) {
+		// The viewer might have been destroyed between the moment the block entered its box and now
+		return;
+	}
+	const int network_peer_id = VoxelEngine::get_singleton().get_viewer_network_peer_id(viewer_id);
+	if (network_peer_id == -1 || network_peer_id == MultiplayerPeer::TARGET_PEER_SERVER) {
+		return;
+	}
+	_multiplayer_synchronizer->send_block(network_peer_id, voxels, bpos, lod_index);
+}
+
+void VoxelLodTerrain::process_multiplayer_server_block_events() {
+	ZN_PROFILE_SCOPE();
+	// Must only be called when the update task is not running, since it reads state owned by the task.
+	CRASH_COND(_update_data->task_is_complete == false);
+
+	VoxelLodTerrainUpdateData::State &state = _update_data->state;
+	VoxelLodTerrainUpdateData::ClipboxStreamingState &cs = state.clipbox_streaming;
+
+	// Refresh main-thread snapshot of paired viewer boxes, so viewer area queries (used by edit replication and
+	// network block ingestion) remain safe while the threaded update task runs
+	_paired_viewer_snapshots.clear();
+	for (const VoxelLodTerrainUpdateData::PairedViewer &pv : cs.paired_viewers) {
+		PairedViewerSnapshot snapshot;
+		snapshot.id = pv.id;
+		snapshot.data_box_per_lod = pv.state.data_box_per_lod;
+		snapshot.network_peer_id = pv.state.network_peer_id;
+		_paired_viewer_snapshots.push_back(snapshot);
+	}
+
+	// Retry network blocks that were received while viewer boxes didn't cover them (either because they were not
+	// known yet, or because they were stale while the viewer was moving)
+	if (_pending_network_blocks.size() > 0 && _paired_viewer_snapshots.size() > 0) {
+		ZN_PRINT_VERBOSE(format("Retrying {} deferred network blocks", _pending_network_blocks.size()));
+		StdVector<PendingNetworkBlock> pending = std::move(_pending_network_blocks);
+		_pending_network_blocks.clear();
+		for (PendingNetworkBlock &pending_block : pending) {
+			// Blocks still out of range will re-defer with an incremented attempt count, and eventually drop
+			try_set_block_data_internal(
+					pending_block.position, pending_block.lod_index, pending_block.voxels, pending_block.attempts
+			);
+		}
+	}
+
+	if (cs.data_blocks_entered.size() == 0 && state.edited_blocks_to_send.size() == 0) {
+		return;
+	}
+
+	const bool server_active = _multiplayer_synchronizer != nullptr &&
+			!Engine::get_singleton()->is_editor_hint() && _multiplayer_synchronizer->is_server();
+
+	const unsigned int data_block_size_po2 = _data->get_block_size_po2();
+	const unsigned int data_block_size = _data->get_block_size();
+
+	if (server_active) {
+		// Blocks that were already loaded when they entered the box of a viewer requiring notifications
+		for (const VoxelLodTerrainUpdateData::DataBlockEnterEvent &event : cs.data_blocks_entered) {
+			if (!_data->has_block(event.position, event.lod_index)) {
+				// The block was unloaded in the meantime
+				continue;
+			}
+			std::shared_ptr<VoxelBuffer> voxels;
+			_data->get_blocks_with_voxel_data(
+					Box3i(event.position, Vector3i(1, 1, 1)),
+					event.lod_index,
+					Span<std::shared_ptr<VoxelBuffer>>(&voxels, 1)
+			);
+			notify_data_block_enter(voxels.get(), event.position, event.lod_index, event.viewer_id);
+		}
+
+		// Data blocks in LODs > 0 that were updated by edit propagation. Viewers holding the LOD0 data covering the
+		// original edit received it as a voxel area and propagate it locally, but viewers too far away only hold the
+		// lower-resolution counterparts, so those must be re-sent.
+		for (unsigned int i = 0; i < state.edited_blocks_to_send.size(); ++i) {
+			const VoxelLodTerrainUpdateData::BlockLocation loc = state.edited_blocks_to_send[i];
+
+			// De-duplicate, edit propagation can report the same block multiple times
+			bool duplicate = false;
+			for (unsigned int j = 0; j < i; ++j) {
+				if (state.edited_blocks_to_send[j] == loc) {
+					duplicate = true;
+					break;
+				}
+			}
+			if (duplicate) {
+				continue;
+			}
+
+			// Extent of this block in voxels
+			const Box3i block_voxel_box(
+					loc.position << (data_block_size_po2 + loc.lod),
+					Vector3iUtil::create(data_block_size << loc.lod)
+			);
+
+			std::shared_ptr<VoxelBuffer> voxels;
+			bool fetched = false;
+
+			for (const VoxelLodTerrainUpdateData::PairedViewer &pv : cs.paired_viewers) {
+				if (!pv.state.requires_data_block_notifications) {
+					continue;
+				}
+				if (!pv.state.data_box_per_lod[loc.lod].contains(loc.position)) {
+					continue;
+				}
+
+				// If the viewer received the LOD0 edit that produced this block, it mips it locally exactly like we
+				// do, so sending it would just make it redo the work (and remesh every LOD again). This is the
+				// common case for whoever made the edit, and it is what keeps continuous editing responsive.
+				const Box3i &viewer_lod0_blocks = pv.state.data_box_per_lod[0];
+				const Box3i viewer_lod0_voxels(
+						viewer_lod0_blocks.position << data_block_size_po2,
+						viewer_lod0_blocks.size << data_block_size_po2
+				);
+				bool viewer_mips_it_locally = false;
+				for (const Box3i &edit_box : state.edited_areas_lod0_to_send) {
+					if (edit_box.intersects(block_voxel_box) && edit_box.intersects(viewer_lod0_voxels)) {
+						viewer_mips_it_locally = true;
+						break;
+					}
+				}
+				if (viewer_mips_it_locally) {
+					continue;
+				}
+				if (!fetched) {
+					_data->get_blocks_with_voxel_data(
+							Box3i(loc.position, Vector3i(1, 1, 1)),
+							loc.lod,
+							Span<std::shared_ptr<VoxelBuffer>>(&voxels, 1)
+					);
+					fetched = true;
+				}
+				if (voxels == nullptr) {
+					// Nothing to send
+					break;
+				}
+				notify_data_block_enter(voxels.get(), loc.position, loc.lod, pv.id);
+			}
+		}
+	}
+
+	cs.data_blocks_entered.clear();
+	state.edited_blocks_to_send.clear();
+	state.edited_areas_lod0_to_send.clear();
+}
+
+bool VoxelLodTerrain::try_set_block_data(
+		Vector3i position,
+		unsigned int lod_index,
+		std::shared_ptr<VoxelBuffer> &voxel_data
+) {
+	return try_set_block_data_internal(position, lod_index, voxel_data, 0);
+}
+
+bool VoxelLodTerrain::try_set_block_data_internal(
+		Vector3i position,
+		unsigned int lod_index,
+		std::shared_ptr<VoxelBuffer> &voxel_data,
+		unsigned int attempts
+) {
+	ZN_PROFILE_SCOPE();
+	ERR_FAIL_COND_V(static_cast<int>(lod_index) >= get_lod_count(), false);
+
+	if (voxel_data != nullptr) {
+		const Vector3i expected_block_size = Vector3iUtil::create(_data->get_block_size());
+		ERR_FAIL_COND_V_MSG(
+				voxel_data->get_size() != expected_block_size,
+				false,
+				String("Block size is different from expected size. Expected {0}, got {1}")
+						.format(varray(expected_block_size, voxel_data->get_size()))
+		);
+	}
+
+	// Setup viewers count intersecting with this block
+	RefCount refcount;
+	bool near_a_viewer_box = false;
+	for (const PairedViewerSnapshot &snapshot : _paired_viewer_snapshots) {
+		const Box3i &box = snapshot.data_box_per_lod[lod_index];
+		if (box.contains(position)) {
+			refcount.add();
+		} else if (box.padded(2).contains(position)) {
+			near_a_viewer_box = true;
+		}
+	}
+
+	if (refcount.get() == 0 && _data->is_streaming_enabled()) {
+		if (near_a_viewer_box) {
+			// The boxes we compare against come from the last completed update, so they can lag slightly behind the
+			// actual viewer position. Accept blocks close to a box, the viewer probably needs them already.
+			refcount.add();
+
+		} else if (_paired_viewer_snapshots.size() == 0) {
+			// Local viewer boxes are not known yet. This can happen when joining a server: initial blocks can
+			// arrive before the terrain ran its first update. Defer them, they will be retried after the next
+			// update. This does not count as an attempt, since no comparison could be done.
+			if (_pending_network_blocks.size() < 65536) {
+				_pending_network_blocks.push_back(
+						PendingNetworkBlock{ voxel_data, position, static_cast<uint8_t>(lod_index),
+											 static_cast<uint8_t>(attempts) }
+				);
+				return true;
+			}
+			return false;
+
+		} else if (attempts < MAX_PENDING_NETWORK_BLOCK_ATTEMPTS && _pending_network_blocks.size() < 65536) {
+			// The block is outside currently known viewer boxes, but those can be quite stale when the terrain is
+			// busy (the update task can span many frames while the viewer keeps moving). Retry a few times before
+			// giving up.
+			_pending_network_blocks.push_back(
+					PendingNetworkBlock{ voxel_data, position, static_cast<uint8_t>(lod_index),
+										 static_cast<uint8_t>(attempts + 1) }
+			);
+			return true;
+
+		} else {
+			// Actually, this block is not even in range. So we may ignore it.
+			// Not fatal any more: if the viewer does turn out to want this block, the repair channel will ask for it
+			// again (see "Block repair" on this class).
+			ZN_PRINT_VERBOSE(
+					format("Trying to set data block {} lod {} outside of any viewer range", position, lod_index)
+			);
+			return false;
+		}
+	}
+
+	VoxelLodTerrainUpdateData::Lod &lod = _update_data->state.lods[lod_index];
+
+	// Cancel loading version if any
+	{
+		MutexLock lock(lod.loading_blocks_mutex);
+		auto loading_block_it = lod.loading_blocks.find(position);
+		if (loading_block_it != lod.loading_blocks.end()) {
+			if (loading_block_it->second.cancellation_token.is_valid()) {
+				loading_block_it->second.cancellation_token.cancel();
+			}
+			lod.loading_blocks.erase(loading_block_it);
+		}
+	}
+
+	VoxelDataBlock block(lod_index);
+	if (voxel_data != nullptr) {
+		block.set_voxels(voxel_data);
+		block.set_edited(true);
+	}
+	block.viewers = refcount;
+
+	// Create or update block data
+	bool inserted = true;
+	_data->try_set_block(
+			position,
+			block,
+			[&inserted](VoxelDataBlock &existing_block, const VoxelDataBlock &incoming_block) {
+				inserted = false;
+				if (incoming_block.has_voxels()) {
+					existing_block.set_voxels(incoming_block.get_voxels_shared());
+				} else {
+					existing_block.clear_voxels();
+				}
+				existing_block.set_edited(incoming_block.is_edited());
+			}
+	);
+
+	if (inserted) {
+		// Tell the streaming system the block is now loaded, so meshing can be triggered when its area is complete
+		if (_data->is_streaming_enabled() &&
+			_update_data->settings.streaming_system == VoxelLodTerrainUpdateData::STREAMING_SYSTEM_CLIPBOX) {
+			VoxelLodTerrainUpdateData::ClipboxStreamingState &cs = _update_data->state.clipbox_streaming;
+			MutexLock mlock(cs.loaded_data_blocks_mutex);
+			cs.loaded_data_blocks.push_back(
+					VoxelLodTerrainUpdateData::BlockLocation{ position, static_cast<uint8_t>(lod_index) }
+			);
+		}
+
+	} else {
+		// The block already existed and its content was replaced (this is how server edits reach areas the client
+		// can't update itself), so meshes overlapping it must be refreshed
+		const unsigned int lod_voxel_scale_po2 = _data->get_block_size_po2() + lod_index;
+		const Box3i voxel_box_lod0(
+				position << lod_voxel_scale_po2, Vector3iUtil::create(1 << lod_voxel_scale_po2)
+		);
+		MutexLock lock(_update_data->state.changed_generated_areas_mutex);
+		_update_data->state.changed_generated_areas.push_back(voxel_box_lod0);
+	}
+
+	return true;
 }
 
 inline void set_block_collision_shape(
@@ -2602,7 +3032,12 @@ void VoxelLodTerrain::save_all_modified_blocks(bool with_copy, std::shared_ptr<A
 	// This could be part of the update task if async, but here we want it to be immediate.
 	_update_data->wait_for_end_of_task();
 
-	VoxelLodTerrainUpdateTask::flush_pending_lod_edits(_update_data->state, *_data, get_mesh_block_size());
+	// Note: `track_edited_blocks` must follow the multiplayer role here exactly like it does in the update task.
+	// Flushing pending LOD edits CONSUMES them, so if a save happens to run before the update task got to them, the
+	// list of LOD > 0 blocks that remote viewers need is lost and distant clients keep stale low-resolution terrain.
+	VoxelLodTerrainUpdateTask::flush_pending_lod_edits(
+			_update_data->state, *_data, get_mesh_block_size(), _update_data->settings.multiplayer_server
+	);
 
 	BufferedTaskScheduler &task_scheduler = BufferedTaskScheduler::get_for_current_thread();
 	StdVector<VoxelData::BlockToSave> blocks_to_save;
@@ -2726,6 +3161,58 @@ bool VoxelLodTerrain::is_area_meshed(const Box3i &box_in_voxels, unsigned int lo
 		const VoxelLodTerrainUpdateData::MeshBlockState &block = it->second;
 		return block.state == VoxelLodTerrainUpdateData::MESH_UP_TO_DATE;
 	});
+}
+
+bool VoxelLodTerrain::is_area_collision_loaded(const Box3i &box_in_voxels, unsigned int lod_index) const {
+	ERR_FAIL_COND_V(lod_index >= static_cast<unsigned int>(get_lod_count()), false);
+	const Box3i box_in_blocks = box_in_voxels.downscaled(1 << (get_mesh_block_size_pow2() + lod_index));
+
+	// What "loaded" has to mean here is LIVE COLLISION, and getting there took measuring
+	// the terrain tick by tick. Collision shapes are BUILT early - every block in range
+	// had `has_collision_shape_assigned()` within 0.03s of a viewer appearing - but they
+	// are not in the physics world until the streaming system ACTIVATES them, which
+	// happened as one event at 0.80s. Physics felt nothing until that instant. So:
+	//
+	//   `MeshBlockState::collision_loaded`  - true once an update lands, far too early
+	//   `has_collision_shape()`             - only says the static BODY RID exists
+	//   `has_collision_shape_assigned()`    - a shape is attached, still not live
+	//   `is_collision_enabled()`            - IN the physics world. This one.
+	//
+	// Note `has_mesh()` is useless as an "is it empty" test on a server: with
+	// `requires_visuals` off there is never a visual mesh, mesh=false everywhere.
+	//
+	// Two conditions, and the second is why this is not simply "all cells match":
+	//  - every overlapping block must have finished its update, so nothing is in flight;
+	//  - at least one must have collision ENABLED, which is what proves the activation
+	//    pass has run here rather than merely being scheduled. Requiring it of ALL blocks
+	//    would never pass, since a chunk of open air legitimately has no active collider.
+	//
+	// A caller that also needs to distinguish "no collider because empty air" from "no
+	// collider yet" should consult the voxel data itself - this reports liveness, not
+	// whether ground is supposed to exist.
+	const VoxelMeshMap<VoxelMeshBlockVLT> &mesh_map = _mesh_maps_per_lod[lod_index];
+	VoxelLodTerrainUpdateData::MeshMapState &mms = _update_data->state.lods[lod_index].mesh_map_state;
+	RWLockRead rlock(mms.map_lock);
+
+	bool any_live = false;
+	const bool all_settled = box_in_blocks.all_cells_match([&mms, &mesh_map, &any_live](Vector3i bpos) {
+		auto it = mms.map.find(bpos);
+		if (it == mms.map.end()) {
+			// Not scheduled here yet.
+			return false;
+		}
+		if (it->second.state.load(std::memory_order_relaxed) !=
+			VoxelLodTerrainUpdateData::MESH_UP_TO_DATE) {
+			return false;
+		}
+		const VoxelMeshBlockVLT *block = mesh_map.get_block(bpos);
+		if (block != nullptr && block->is_collision_enabled()) {
+			any_live = true;
+		}
+		return true;
+	});
+
+	return all_settled && any_live;
 }
 
 VoxelLodTerrain::StreamingSystem VoxelLodTerrain::get_streaming_system() const {
@@ -3840,6 +4327,54 @@ bool VoxelLodTerrain::_b_is_area_meshed(AABB aabb, int lod_index) const {
 	return is_area_meshed(Box3i(aabb.position, aabb.size), lod_index);
 }
 
+Array VoxelLodTerrain::_b_debug_get_mesh_blocks(int lod_index) const {
+	Array out;
+	ERR_FAIL_INDEX_V(lod_index, get_lod_count(), out);
+	const VoxelMeshMap<VoxelMeshBlockVLT> &mesh_map = _mesh_maps_per_lod[lod_index];
+	mesh_map.for_each_block([&out](const VoxelMeshBlockVLT &block) {
+		Array entry;
+		entry.push_back(block.position);
+		entry.push_back(block.has_mesh());
+		entry.push_back(block.has_collision_shape_assigned());
+		entry.push_back(block.is_collision_enabled());
+		out.push_back(entry);
+	});
+	return out;
+}
+
+bool VoxelLodTerrain::_b_is_area_collision_loaded(AABB aabb, int lod_index) const {
+	ERR_FAIL_COND_V(lod_index < 0, false);
+	return is_area_collision_loaded(Box3i(aabb.position, aabb.size), lod_index);
+}
+
+bool VoxelLodTerrain::_b_try_set_block_data(Vector3i position, int lod_index, Ref<godot::VoxelBuffer> voxel_data) {
+	ERR_FAIL_COND_V(voxel_data.is_null(), false);
+	ERR_FAIL_INDEX_V(lod_index, get_lod_count(), false);
+	std::shared_ptr<VoxelBuffer> buffer = voxel_data->get_buffer_shared();
+	return try_set_block_data(position, lod_index, buffer);
+}
+
+PackedInt32Array VoxelLodTerrain::_b_get_viewer_network_peer_ids_in_area(Vector3i area_origin, Vector3i area_size)
+		const {
+	static thread_local StdVector<ViewerID> s_ids;
+	StdVector<ViewerID> &viewer_ids = s_ids;
+	viewer_ids.clear();
+	get_viewers_in_area(viewer_ids, Box3i(area_origin, area_size));
+
+	PackedInt32Array peer_ids;
+	peer_ids.resize(viewer_ids.size());
+	// Using direct access because when compiling with GodotCpp the array access syntax is different, also it is a bit
+	// faster
+	int32_t *peer_ids_data = peer_ids.ptrw();
+	ZN_ASSERT_RETURN_V(peer_ids_data != nullptr, peer_ids);
+	for (size_t i = 0; i < viewer_ids.size(); ++i) {
+		const int peer_id = VoxelEngine::get_singleton().get_viewer_network_peer_id(viewer_ids[i]);
+		peer_ids_data[i] = peer_id;
+	}
+
+	return peer_ids;
+}
+
 void VoxelLodTerrain::_bind_methods() {
 	using Self = VoxelLodTerrain;
 
@@ -3906,6 +4441,21 @@ void VoxelLodTerrain::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("is_stream_running_in_editor"), &Self::is_stream_running_in_editor);
 
 	ClassDB::bind_method(D_METHOD("is_area_meshed", "area_in_voxels", "lod_index"), &Self::_b_is_area_meshed);
+	ClassDB::bind_method(
+			D_METHOD("is_area_collision_loaded", "area_in_voxels", "lod_index"),
+			&Self::_b_is_area_collision_loaded
+	);
+	ClassDB::bind_method(D_METHOD("debug_get_mesh_blocks", "lod_index"), &Self::_b_debug_get_mesh_blocks);
+
+	// Multiplayer
+
+	ClassDB::bind_method(
+			D_METHOD("try_set_block_data", "position", "lod_index", "voxels"), &Self::_b_try_set_block_data
+	);
+	ClassDB::bind_method(
+			D_METHOD("get_viewer_network_peer_ids_in_area", "area_origin", "area_size"),
+			&Self::_b_get_viewer_network_peer_ids_in_area
+	);
 
 	// Normalmaps
 

@@ -238,11 +238,13 @@ void apply_block_data_requests_as_empty(
 	for (const VoxelLodTerrainUpdateData::BlockToLoad &btl : blocks_to_load) {
 		VoxelLodTerrainUpdateData::Lod &lod = state.lods[btl.loc.lod];
 		RefCount viewers;
+		StdVector<ViewerID> viewers_to_notify;
 		{
 			MutexLock mlock(lod.loading_blocks_mutex);
 			auto it = lod.loading_blocks.find(btl.loc.position);
 			if (it != lod.loading_blocks.end()) {
 				viewers = it->second.viewers;
+				viewers_to_notify = std::move(it->second.viewers_to_notify);
 				lod.loading_blocks.erase(it);
 			} else {
 				ZN_PRINT_ERROR("Loading block wasn't found when consuming data requests as empty");
@@ -255,6 +257,13 @@ void apply_block_data_requests_as_empty(
 			VoxelDataBlock empty_block(btl.loc.lod);
 			empty_block.viewers = viewers;
 			data.try_set_block(btl.loc.position, empty_block);
+		}
+		// Multiplayer: remote viewers still need to be told about these blocks, they will be sent as "empty".
+		// We can't send from the update task, so defer as enter events consumed by the main thread.
+		for (const ViewerID viewer_id : viewers_to_notify) {
+			state.clipbox_streaming.data_blocks_entered.push_back(
+					VoxelLodTerrainUpdateData::DataBlockEnterEvent{ viewer_id, btl.loc.position, btl.loc.lod }
+			);
 		}
 	}
 
@@ -623,14 +632,15 @@ void VoxelLodTerrainUpdateTask::send_block_save_requests(
 void VoxelLodTerrainUpdateTask::flush_pending_lod_edits(
 		VoxelLodTerrainUpdateData::State &state,
 		VoxelData &data,
-		const int mesh_block_size
+		const int mesh_block_size,
+		const bool track_edited_blocks
 ) {
 	ZN_DSTACK();
 	ZN_PROFILE_SCOPE();
 
 	static thread_local StdVector<Vector3i> tls_modified_lod0_blocks;
 	static thread_local StdVector<Box3i> tls_modified_voxel_areas_lod0;
-	// static thread_local StdVector<VoxelData::BlockLocation> tls_updated_block_locations;
+	static thread_local StdVector<VoxelData::BlockLocation> tls_updated_block_locations;
 
 	tls_modified_lod0_blocks.clear();
 	tls_modified_voxel_areas_lod0.clear();
@@ -648,8 +658,22 @@ void VoxelLodTerrainUpdateTask::flush_pending_lod_edits(
 	}
 
 	// Update all data LODs
-	// tls_updated_block_locations.clear();
-	data.update_lods(to_span(tls_modified_lod0_blocks), nullptr);
+	tls_updated_block_locations.clear();
+	data.update_lods(to_span(tls_modified_lod0_blocks), track_edited_blocks ? &tls_updated_block_locations : nullptr);
+
+	if (track_edited_blocks) {
+		// Multiplayer server: keep track of data blocks in LOD > 0 that were updated by edit propagation, so they can
+		// be sent to remote viewers unable to propagate the LOD0 edit themselves. LOD0 edits are replicated
+		// separately as voxel areas.
+		for (const VoxelData::BlockLocation &loc : tls_updated_block_locations) {
+			if (loc.lod_index > 0) {
+				state.edited_blocks_to_send.push_back(
+						VoxelLodTerrainUpdateData::BlockLocation{ loc.position, static_cast<uint8_t>(loc.lod_index) }
+				);
+			}
+		}
+		append_array(state.edited_areas_lod0_to_send, tls_modified_voxel_areas_lod0);
+	}
 
 	// Update affected meshes.
 	// TODO Optimize: trigger mesh updates at LOD0 earlier? There is a bit of latency due to doing all the mipping work
@@ -928,7 +952,7 @@ void VoxelLodTerrainUpdateTask::run(ThreadedTaskContext &ctx) {
 	// These are deferred from edits so we can batch them.
 	// It has to happen first because blocks can be unloaded afterwards.
 	// This is also what causes meshes to update after edits.
-	flush_pending_lod_edits(state, data, 1 << settings.mesh_block_size_po2);
+	flush_pending_lod_edits(state, data, 1 << settings.mesh_block_size_po2, settings.multiplayer_server);
 
 	// Other mesh updates
 	process_changed_generated_areas(state, settings, lod_count);

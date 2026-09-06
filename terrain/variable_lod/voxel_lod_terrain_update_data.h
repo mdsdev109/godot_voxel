@@ -79,6 +79,13 @@ struct VoxelLodTerrainUpdateData {
 		bool collision_enabled = true;
 		bool detail_textures_use_gpu = false;
 		bool generator_use_gpu = false;
+		// Set when a multiplayer synchronizer is attached to the terrain and acting as server. Enables gathering of
+		// per-viewer data block enter events and tracking of data blocks updated by edit propagation across LODs,
+		// so they can be replicated to remote viewers.
+		bool multiplayer_server = false;
+		// Turned off on multiplayer clients: data blocks are not loaded or generated locally, they are received from
+		// the server instead.
+		bool block_loading_enabled = true;
 		uint8_t detail_texture_generator_override_begin_lod_index = 0;
 		unsigned int mesh_block_size_po2 = 4;
 #ifdef VOXEL_ENABLE_SMOOTH_MESHING
@@ -167,6 +174,9 @@ struct VoxelLodTerrainUpdateData {
 	struct LoadingDataBlock {
 		RefCount viewers;
 		TaskCancellationToken cancellation_token;
+		// Viewers that will need to be notified when the block finishes loading (used for multiplayer replication,
+		// where the server must send blocks entering the area of remote viewers)
+		StdVector<ViewerID> viewers_to_notify;
 	};
 
 	struct MeshToUpdate {
@@ -277,6 +287,15 @@ struct VoxelLodTerrainUpdateData {
 			Distances view_distance_voxels;
 			bool requires_collisions = false;
 			bool requires_visuals = false;
+			// Tells if data blocks entering this viewer's boxes must produce notifications (used for multiplayer
+			// replication on the server)
+			bool requires_data_block_notifications = false;
+			// Network peer this viewer sends data to, mirrored from the engine's viewer so the update task can tell
+			// when it CHANGES. A viewer can outlive the connection it was bound to (a client reconnecting, or moving
+			// between servers, while the game keeps the same viewer object). The new peer starts with an empty
+			// terrain, but the viewer's boxes did not move, so no block would ever "enter" them again and the peer
+			// would receive nothing. Detecting the change is what triggers a full re-send.
+			int network_peer_id = -1;
 		};
 		ViewerID id;
 		State state;
@@ -290,8 +309,18 @@ struct VoxelLodTerrainUpdateData {
 		bool collision;
 	};
 
+	struct DataBlockEnterEvent {
+		ViewerID viewer_id;
+		Vector3i position;
+		uint8_t lod_index;
+	};
+
 	struct ClipboxStreamingState {
 		StdVector<PairedViewer> paired_viewers;
+
+		// Data blocks that were already loaded when they entered the box of a viewer requiring notifications.
+		// Written by the update task, consumed by the main thread when the task is complete.
+		StdVector<DataBlockEnterEvent> data_blocks_entered;
 		// Vector3i viewer_pos_in_lod0_voxels_previous_update;
 		// int lod_distance_in_data_chunks_previous_update = 0;
 		// int lod_distance_in_mesh_chunks_previous_update = 0;
@@ -338,6 +367,15 @@ struct VoxelLodTerrainUpdateData {
 		// Areas where generated stuff has changed. Similar to an edit, but non-destructive.
 		StdVector<Box3i> changed_generated_areas;
 		BinaryMutex changed_generated_areas_mutex;
+
+		// Data blocks (in LODs > 0) whose content was updated by edit propagation (mipping). Only gathered when
+		// `Settings::multiplayer_server` is enabled, so the server can re-send them to remote viewers that are too far
+		// away to propagate the original LOD0 edit themselves.
+		// Written by the update task, consumed by the main thread when the task is complete.
+		StdVector<BlockLocation> edited_blocks_to_send;
+		// LOD0 areas that produced the blocks above, in voxels. A viewer that received one of these as an edit message
+		// mips it locally, so re-sending the resulting blocks to it would be redundant work on both ends.
+		StdVector<Box3i> edited_areas_lod0_to_send;
 
 		Stats stats;
 	};

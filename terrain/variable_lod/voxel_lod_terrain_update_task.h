@@ -54,7 +54,8 @@ public:
 	static void flush_pending_lod_edits(
 			VoxelLodTerrainUpdateData::State &state,
 			VoxelData &data,
-			const int mesh_block_size
+			const int mesh_block_size,
+			const bool track_edited_blocks = false
 	);
 
 	static uint8_t get_transition_mask(

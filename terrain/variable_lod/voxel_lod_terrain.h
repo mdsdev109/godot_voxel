@@ -23,6 +23,11 @@ namespace zylann::voxel {
 class VoxelTool;
 class VoxelStream;
 class VoxelSaveCompletionTracker;
+class VoxelLodTerrainMultiplayerSynchronizer;
+
+namespace godot {
+class VoxelBuffer;
+}
 
 #ifdef VOXEL_ENABLE_INSTANCER
 class VoxelInstancer;
@@ -141,6 +146,44 @@ public:
 	void post_edit_area(Box3i p_box, bool update_mesh);
 	void post_edit_modifiers(Box3i p_voxel_box);
 
+	// Multiplayer
+
+	void set_multiplayer_synchronizer(VoxelLodTerrainMultiplayerSynchronizer *synchronizer);
+	const VoxelLodTerrainMultiplayerSynchronizer *get_multiplayer_synchronizer() const;
+
+	// Sets voxel data of a block at the given LOD, discarding existing data if any.
+	// If the given block coordinates are not inside any viewer's area, this function won't do anything and return
+	// false. If a block is already loading or generating at this position, it will be cancelled.
+	// `voxel_data` may be null, in which case the block is registered as loaded but empty (no edits, voxels can be
+	// obtained from generators on the fly).
+	bool try_set_block_data(Vector3i position, unsigned int lod_index, std::shared_ptr<VoxelBuffer> &voxel_data);
+
+	// Gets viewers whose data area at LOD0 intersects the given voxel box
+	void get_viewers_in_area(StdVector<ViewerID> &out_viewer_ids, Box3i voxel_box) const;
+
+	// --- Block repair (multiplayer) ---
+	// Replication is fire-and-forget: the server sends a block when it ENTERS a viewer's box. Anything that leaves a
+	// client without a block it needs is therefore permanent, because the server's box never changed and will never
+	// notify again. Two ways that happens in practice: the client dropped an arriving block that was outside its own
+	// (lagging) boxes at the time, and the client unloaded a block whose area it later views again. These three
+	// functions let the client name what it is missing and the server answer, bounded by what it would have sent
+	// anyway.
+
+	// Client side: collects data blocks that local viewers want but the data map does not have, LOD0 first, up to
+	// `max_count`.
+	void get_missing_data_blocks_for_local_viewers(
+			StdVector<VoxelLodTerrainUpdateData::BlockLocation> &out_blocks,
+			unsigned int max_count
+	) const;
+
+	// Server side: tells whether `bpos` at `lod_index` is inside the data box of a viewer bound to `peer_id`. This is
+	// the authority check for a repair request — a peer can never obtain a block it would not have been sent.
+	bool is_data_block_in_peer_view(int peer_id, Vector3i bpos, unsigned int lod_index) const;
+
+	// Server side: re-sends a resident data block to a peer. Returns false when the block isn't resident here, in
+	// which case nothing is sent (it is either still loading, and the load will notify, or out of range).
+	bool resend_data_block_to_peer(int peer_id, Vector3i bpos, unsigned int lod_index);
+
 	// TODO This still sucks atm cuz the edit will still run on the main thread
 	void push_async_edit(IThreadedTask *task, Box3i box, std::shared_ptr<AsyncDependencyTracker> tracker);
 	void abort_async_edits();
@@ -200,6 +243,17 @@ public:
 	void remesh_all_blocks() override;
 
 	bool is_area_meshed(const Box3i &box_in_voxels, unsigned int lod_index) const;
+
+	// Returns true when every mesh block overlapping the box has finished loading its
+	// COLLISION at the given LOD. Unlike `is_area_meshed`, which reports the update
+	// task's mesh state, this reports whether colliders have actually been applied to
+	// the scene - those are not the same moment, and a body placed in the gap falls
+	// through a world that is about to exist.
+	//
+	// A block with no surface counts as loaded (there is no collider to wait for), and
+	// so does a block no viewer has asked collision for; otherwise a query that reaches
+	// outside the collision radius could never be satisfied.
+	bool is_area_collision_loaded(const Box3i &box_in_voxels, unsigned int lod_index) const;
 
 	enum StreamingSystem : uint8_t { //
 		STREAMING_SYSTEM_LEGACY_OCTREE = VoxelLodTerrainUpdateData::STREAMING_SYSTEM_LEGACY_OCTREE,
@@ -340,6 +394,11 @@ private:
 	void process_deferred_collision_updates(uint32_t timeout_msec);
 	void process_fading_blocks(float delta);
 
+	// Notifies that a data block entered the area of a viewer requiring notifications. On a multiplayer server, this
+	// sends the block to the viewer's network peer. `voxels` may be null for blocks with no voxel data.
+	void notify_data_block_enter(const VoxelBuffer *voxels, Vector3i bpos, unsigned int lod_index, ViewerID viewer_id);
+	void process_multiplayer_server_block_events();
+
 	struct LocalCameraInfo {
 		Vector3 position;
 		Vector3 forward;
@@ -364,6 +423,16 @@ private:
 	int /*Error*/ _b_debug_dump_as_scene(String fpath, bool include_instancer) const;
 
 	bool _b_is_area_meshed(AABB aabb, int lod_index) const;
+	bool _b_is_area_collision_loaded(AABB aabb, int lod_index) const;
+	// Every scene-side mesh block at this LOD, as
+	// [block_pos, has_mesh, has_collision_shape_assigned, collision_enabled] entries.
+	// Unlike `debug_get_mesh_block_info`, which needs a position guessed in advance, this
+	// reports what actually EXISTS - which is what makes collider-timing issues  diagnosable
+	// (the four states above turn out to flip at very different moments).
+	Array _b_debug_get_mesh_blocks(int lod_index) const;
+
+	bool _b_try_set_block_data(Vector3i position, int lod_index, Ref<godot::VoxelBuffer> voxel_data);
+	PackedInt32Array _b_get_viewer_network_peer_ids_in_area(Vector3i area_origin, Vector3i area_size) const;
 
 	Dictionary _b_get_statistics() const;
 
@@ -428,6 +497,39 @@ private:
 #ifdef VOXEL_ENABLE_INSTANCER
 	VoxelInstancer *_instancer = nullptr;
 #endif
+
+	VoxelLodTerrainMultiplayerSynchronizer *_multiplayer_synchronizer = nullptr;
+
+	// Snapshot of paired viewer boxes maintained on the main thread, so viewer queries remain safe while the threaded
+	// update task is running (the authoritative list is owned by the update task).
+	struct PairedViewerSnapshot {
+		ViewerID id;
+		FixedArray<Box3i, constants::MAX_LOD> data_box_per_lod;
+		// Mirrored so repair requests can be checked against the boxes of the viewer that belongs to the asking
+		// peer, without querying VoxelEngine per request entry.
+		int network_peer_id = -1;
+	};
+	StdVector<PairedViewerSnapshot> _paired_viewer_snapshots;
+
+	// Network blocks received while local viewer boxes didn't cover them. This can happen right after joining a
+	// server (blocks arrive before the terrain ran its first update), or while moving fast (the boxes lag behind the
+	// actual viewer position because they come from the last completed update task). They are retried after
+	// following updates, and dropped after too many attempts.
+	struct PendingNetworkBlock {
+		std::shared_ptr<VoxelBuffer> voxels;
+		Vector3i position;
+		uint8_t lod_index;
+		uint8_t attempts;
+	};
+	static constexpr unsigned int MAX_PENDING_NETWORK_BLOCK_ATTEMPTS = 10;
+	StdVector<PendingNetworkBlock> _pending_network_blocks;
+
+	bool try_set_block_data_internal(
+			Vector3i position,
+			unsigned int lod_index,
+			std::shared_ptr<VoxelBuffer> &voxel_data,
+			unsigned int attempts
+	);
 
 	Ref<VoxelMesher> _mesher;
 

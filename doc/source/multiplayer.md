@@ -63,7 +63,30 @@ Client and server will need a different setup.
 With `VoxelLodTerrain`
 ------------------------
 
-There is no support for now, but it is planned.
+Support is experimental, based on the same principle as `VoxelTerrainMultiplayerSynchronizer`, using the `VoxelLodTerrainMultiplayerSynchronizer` node. The server is authoritative, and clients receive data blocks and edits from it, at every LOD.
+
+Requirements:
+
+- The terrain must use the `Clipbox` streaming system (the legacy octree system does not support multiple viewers).
+- Streaming must be enabled (full load mode is not supported).
+- The data block size and LOD settings must match between server and clients (they should, if the same scene is used).
+
+### On the server
+
+- Add `VoxelLodTerrain` to your scene, configured with the Clipbox streaming system.
+- Add a `VoxelLodTerrainMultiplayerSynchronizer` node as child of your `VoxelLodTerrain`.
+- When a player joins, make sure a `VoxelViewer` is created for it. Assign its `network_peer_id` and enable `requires_data_block_notifications`. You may also want to turn off `requires_visuals` on viewers representing remote players, since it's normally not necessary to render their surroundings. However, keep `requires_collisions` enabled if the server simulates physics around players (player bodies, projectiles...), so terrain colliders exist server-side wherever players are. A mesher must be assigned for colliders to generate, even on a server that renders nothing.
+
+### On the client
+
+- Add `VoxelLodTerrain` to your scene, with the same configuration as the server, and the **same generator** (it is required: unedited terrain is not transmitted, clients generate it locally from an "empty block" marker, so an identical generator is what keeps both sides consistent).
+- **Do not assign a `VoxelStream` on clients.** The terrain saves modified blocks whenever a stream is assigned, regardless of multiplayer role, and blocks received from the server are marked modified when they are applied. A client with a stream will therefore write the server's data into its own save file. If client and server run on the same machine pointing at the same database file, that means two processes writing the same database. If you assign the stream in a shared scene, clear it on clients (`terrain.stream = null`) before the terrain enters the tree.
+- Add a `VoxelLodTerrainMultiplayerSynchronizer` node as child of the `VoxelLodTerrain`. Make sure it has the same name as its server equivalent.
+- The client will still need a `VoxelViewer` for the local player, which drives which blocks the terrain keeps loaded and meshed. To reduce the likelihood of "holes" in the terrain, the server-side viewer of that player should have a view distance at least as large as the client's, so every block the client wants to mesh is actually sent.
+
+### How edits are replicated
+
+When voxels are edited on the server, the edited area at LOD0 is sent to every client whose LOD0 data area covers it. Those clients apply the voxels and update their own LOD mips locally, like the server does. Clients that are too far away to hold LOD0 data of the edited area instead receive re-sent copies of the lower-resolution data blocks that were affected by the edit, so distant terrain stays in sync as well.
 
 
 Protocol notes

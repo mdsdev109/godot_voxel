@@ -244,6 +244,16 @@ public:
 	// Accounts for data boundaries, but is slower as a result.
 	bool has_all_blocks_in_area(Box3i data_blocks_box, unsigned int lod_index) const;
 
+	// Collects block positions in an area that have no block at all, up to `max_count`. Accounts for data
+	// boundaries. Used by multiplayer clients, whose data map is filled only by the server: a block that never
+	// arrived, or that was unloaded and is needed again, cannot be recovered any other way.
+	void get_missing_blocks_in_area(
+			Box3i data_blocks_box,
+			unsigned int lod_index,
+			StdVector<Vector3i> &out_missing,
+			unsigned int max_count
+	) const;
+
 	// Tests if all blocks in an area are loaded. If any isn't, returns false. Otherwise, returns true.
 	// Doesn't account for data boundaries, so if the given box overlaps outside, it will return false.
 	bool has_all_blocks_in_area_unbound(Box3i data_blocks_box, unsigned int lod_index) const;

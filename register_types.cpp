@@ -39,6 +39,7 @@
 #include "terrain/fixed_lod/voxel_terrain.h"
 #include "terrain/fixed_lod/voxel_terrain_multiplayer_synchronizer.h"
 #include "terrain/variable_lod/voxel_lod_terrain.h"
+#include "terrain/variable_lod/voxel_lod_terrain_multiplayer_synchronizer.h"
 #include "terrain/voxel_a_star_grid_3d.h"
 #include "terrain/voxel_mesh_block.h"
 #include "terrain/voxel_save_completion_tracker.h"
@@ -189,6 +190,8 @@
 
 #ifdef VOXEL_TESTS
 #include "tests/tests.h"
+#include "tests/voxel/test_planet_field_bench.h"
+#include "tests/voxel/test_planet_field_check.h"
 #include "util/testing/test_options.h"
 #endif
 
@@ -320,6 +323,7 @@ void initialize_voxel_module(ModuleInitializationLevel p_level) {
 		ClassDB::register_class<ZN_SpotNoise>();
 		ClassDB::register_class<ZN_ThreadedTask>();
 		ClassDB::register_class<VoxelTerrainMultiplayerSynchronizer>();
+		ClassDB::register_class<VoxelLodTerrainMultiplayerSynchronizer>();
 		ClassDB::register_class<VoxelAStarGrid3D>();
 
 		// Meshers
@@ -432,11 +436,23 @@ void initialize_voxel_module(ModuleInitializationLevel p_level) {
 #ifdef VOXEL_TESTS
 		const PackedStringArray command_line_arguments = zylann::godot::get_command_line_arguments();
 		const String tests_cmd = "--run_voxel_tests";
+		// Kept separate from the test suite: this is a measurement, not a pass/fail check, and it runs
+		// for a while. See tests/voxel/test_planet_field_bench.h.
+		const String planet_field_bench_cmd = "--run_planet_field_bench";
+		const String planet_field_check_cmd = "--run_planet_field_check";
 
 		for (int i = 0; i < command_line_arguments.size(); ++i) {
 			const String arg = command_line_arguments[i];
 			if (arg == tests_cmd) {
 				zylann::voxel::tests::run_voxel_tests(zylann::testing::TestOptions());
+				break;
+			}
+			if (arg == planet_field_bench_cmd) {
+				zylann::voxel::tests::run_planet_field_bench();
+				break;
+			}
+			if (arg == planet_field_check_cmd) {
+				zylann::voxel::tests::run_planet_field_check();
 				break;
 			}
 		}

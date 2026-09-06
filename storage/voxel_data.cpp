@@ -801,6 +801,31 @@ bool VoxelData::has_all_blocks_in_area_unbound(Box3i data_blocks_box, unsigned i
 	});
 }
 
+void VoxelData::get_missing_blocks_in_area(
+		Box3i data_blocks_box,
+		const unsigned int lod_index,
+		StdVector<Vector3i> &out_missing,
+		const unsigned int max_count
+) const {
+	ZN_PROFILE_SCOPE();
+	const Box3i bounds_in_blocks = get_bounds().downscaled(get_block_size() << lod_index);
+	data_blocks_box = data_blocks_box.clipped(bounds_in_blocks);
+
+	// One lock for the whole box: callers scan thousands of cells, and taking the lock per cell (as `has_block`
+	// does) would dominate the cost.
+	const Lod &data_lod = _lods[lod_index];
+	RWLockRead rlock(data_lod.map_lock);
+
+	data_blocks_box.for_each_cell_zxy([&data_lod, &out_missing, max_count](Vector3i bpos) {
+		if (out_missing.size() >= max_count) {
+			return;
+		}
+		if (!data_lod.map.has_block(bpos)) {
+			out_missing.push_back(bpos);
+		}
+	});
+}
+
 unsigned int VoxelData::get_block_count() const {
 	unsigned int sum = 0;
 	const unsigned int lod_count = get_lod_count();

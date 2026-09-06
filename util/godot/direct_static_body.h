@@ -19,6 +19,12 @@ public:
 	void create();
 	void destroy();
 	bool is_valid() const;
+	// True when a shape has actually been attached. Distinct from `is_valid()`, which
+	// only says the BODY exists - a body is created before its shape is built, so
+	// `is_valid()` answers "will there be a collider" while this answers "is there one".
+	inline bool has_shape() const {
+		return _shape.is_valid();
+	}
 	void set_transform(Transform3D transform);
 	void add_shape(Ref<Shape3D> shape);
 	void remove_shape(int shape_index);

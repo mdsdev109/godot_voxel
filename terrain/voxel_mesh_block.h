@@ -66,7 +66,13 @@ public:
 	// Collisions
 
 	void set_collision_shape(Ref<Shape3D> shape, bool debug_collision, const Node3D *node, float margin);
+	// NOTE: despite the name this only reports that the static BODY exists, not that a
+	// shape is attached to it. Use `has_collision_shape_assigned()` to know whether
+	// something is actually collidable.
 	bool has_collision_shape() const;
+	inline bool has_collision_shape_assigned() const {
+		return _static_body.has_shape();
+	}
 	void set_collision_layer(int layer);
 	void set_collision_mask(int mask);
 	void set_collision_margin(float margin);

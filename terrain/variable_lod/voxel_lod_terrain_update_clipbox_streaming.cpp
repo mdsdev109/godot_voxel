@@ -247,6 +247,9 @@ void process_viewers(
 		paired_viewer.state.local_position_voxels = math::floor_to_int(local_position);
 		paired_viewer.state.requires_collisions = viewer.require_collisions && can_mesh;
 		paired_viewer.state.requires_visuals = viewer.require_visuals && can_mesh;
+		paired_viewer.state.requires_data_block_notifications =
+				viewer.requires_data_block_notifications && volume_settings.multiplayer_server;
+		paired_viewer.state.network_peer_id = viewer.network_peer_id;
 
 		// Viewers can request any box they like, but they must follow these rules:
 		// - Boxes of parent LODs must contain child boxes (when converted into world coordinates)
@@ -259,7 +262,11 @@ void process_viewers(
 		// since every LOD is assumed to have an even size when handling subdivisions
 
 		// Update data and mesh boxes
-		if (paired_viewer.state.requires_collisions || paired_viewer.state.requires_visuals) {
+		if (paired_viewer.state.requires_collisions || paired_viewer.state.requires_visuals ||
+			// Viewers requiring data block notifications represent remote players on a server. Even though the
+			// server itself may not need meshes around them, use mesh-based data boxes so the data sent to those
+			// players covers everything their own terrain needs to build meshes (including padding for neighbors).
+			paired_viewer.state.requires_data_block_notifications) {
 			// Meshes are required
 
 			for (unsigned int lod_index = 0; lod_index < lod_count; ++lod_index) {
@@ -417,7 +424,9 @@ void add_loading_block(
 		VoxelLodTerrainUpdateData::Lod &lod,
 		Vector3i position,
 		uint8_t lod_index,
-		StdVector<VoxelLodTerrainUpdateData::BlockToLoad> &blocks_to_load
+		StdVector<VoxelLodTerrainUpdateData::BlockToLoad> &blocks_to_load,
+		// May be set when the requesting viewer needs to be notified when the block finishes loading (multiplayer)
+		const ViewerID *viewer_to_notify
 ) {
 	auto it = lod.loading_blocks.find(position);
 
@@ -426,6 +435,10 @@ void add_loading_block(
 		VoxelLodTerrainUpdateData::LoadingDataBlock new_loading_block;
 		new_loading_block.viewers.add();
 		new_loading_block.cancellation_token = TaskCancellationToken::create();
+
+		if (viewer_to_notify != nullptr) {
+			new_loading_block.viewers_to_notify.push_back(*viewer_to_notify);
+		}
 
 		lod.loading_blocks.insert({ position, new_loading_block });
 
@@ -439,6 +452,10 @@ void add_loading_block(
 	} else {
 		// Already loaded
 		it->second.viewers.add();
+
+		if (viewer_to_notify != nullptr) {
+			it->second.viewers_to_notify.push_back(*viewer_to_notify);
+		}
 	}
 }
 
@@ -555,20 +572,72 @@ void process_data_blocks_sliding_box(
 				break;
 			}
 
+			// A different network peer took over this viewer (reconnection, or a game moving a player between
+			// servers while reusing the same viewer). Everything already inside the boxes was delivered to the
+			// PREVIOUS peer, and box-difference notifications would never mention it again, so the new peer would
+			// hold a terrain full of holes: blocks it never received, which later edits then get pasted into and
+			// silently dropped. Re-send what is already resident; blocks still loading are unaffected, they carry
+			// this viewer in their notification list and resolve to the current peer when they complete.
+			const bool renotify_all = can_load && paired_viewer.state.requires_data_block_notifications &&
+					paired_viewer.state.network_peer_id != paired_viewer.prev_state.network_peer_id &&
+					paired_viewer.state.network_peer_id != -1;
+
+			if (renotify_all) {
+				ZN_PROFILE_SCOPE_NAMED("Re-notify blocks after peer change");
+				const Box3i box = new_data_box.clipped(bounds_in_data_blocks);
+				box.for_each_cell_zxy([&data, &state, &paired_viewer, lod_index](Vector3i bpos) {
+					if (data.has_block(bpos, lod_index)) {
+						state.clipbox_streaming.data_blocks_entered.push_back(
+								VoxelLodTerrainUpdateData::DataBlockEnterEvent{
+										paired_viewer.id, bpos, static_cast<uint8_t>(lod_index) }
+						);
+					}
+				});
+			}
+
 			if (prev_data_box != new_data_box) {
 				// Detect blocks to load.
 				if (can_load) {
-					tls_missing_blocks.clear();
+					const bool notifications_required = paired_viewer.state.requires_data_block_notifications;
+					// When a full re-send is happening this frame, the box difference must not ALSO report blocks
+					// that were already resident, or they would be sent twice. Blocks that still have to be LOADED
+					// are a different matter: they are not resident, so the re-send pass cannot see them, and they
+					// must still register this viewer to be notified on completion.
+					const bool report_found_blocks = notifications_required && !renotify_all;
 
-					new_data_box.difference(prev_data_box, [&data, lod_index](Box3i box_to_load) {
-						data.view_area(box_to_load, lod_index, &tls_missing_blocks, nullptr, nullptr);
-					});
+					tls_missing_blocks.clear();
+					tls_found_blocks_positions.clear();
+
+					new_data_box.difference(
+							prev_data_box,
+							[&data, lod_index, report_found_blocks](Box3i box_to_load) {
+								data.view_area(
+										box_to_load,
+										lod_index,
+										&tls_missing_blocks,
+										report_found_blocks ? &tls_found_blocks_positions : nullptr,
+										nullptr
+								);
+							}
+					);
 
 					{
 						ZN_PROFILE_SCOPE_NAMED("Add loading blocks");
 						MutexLock mlock(lod.loading_blocks_mutex);
+						const ViewerID *viewer_to_notify = notifications_required ? &paired_viewer.id : nullptr;
 						for (const Vector3i bpos : tls_missing_blocks) {
-							add_loading_block(lod, bpos, lod_index, data_blocks_to_load);
+							add_loading_block(lod, bpos, lod_index, data_blocks_to_load, viewer_to_notify);
+						}
+					}
+
+					if (report_found_blocks) {
+						// Blocks that were already loaded when they entered the viewer's box. Defer their
+						// notifications to the main thread, which will send them to the network peer.
+						for (const Vector3i bpos : tls_found_blocks_positions) {
+							state.clipbox_streaming.data_blocks_entered.push_back(
+									VoxelLodTerrainUpdateData::DataBlockEnterEvent{
+											paired_viewer.id, bpos, static_cast<uint8_t>(lod_index) }
+							);
 						}
 					}
 				}
@@ -1639,7 +1708,15 @@ void process_clipbox_streaming(
 
 	if (streaming_enabled) {
 		process_data_blocks_sliding_box(
-				state, data, data_blocks_to_save, data_blocks_to_load, settings, lod_count, can_load
+				state,
+				data,
+				data_blocks_to_save,
+				data_blocks_to_load,
+				settings,
+				lod_count,
+				// Multiplayer clients don't load or generate data blocks themselves, they receive them from the
+				// server. Meshing is not affected by this (it is gated by `can_load` further below).
+				can_load && settings.block_loading_enabled
 		);
 	} else {
 		if (full_load_completed == false) {

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="VoxelLodTerrainMultiplayerSynchronizer" inherits="Node" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../../../doc/class.xsd">
+	<brief_description>
+		Implements server-authoritative multiplayer replication for [VoxelLodTerrain].
+	</brief_description>
+	<description>
+		Add this node as child of a [VoxelLodTerrain] on both server and client (with the same node path). On the server, data blocks entering the range of remote viewers ([VoxelViewer] nodes with a network peer ID and data block notifications enabled) are automatically sent to the corresponding peers at every LOD. Edits are replicated as well. Requires the Clipbox streaming system, with streaming enabled (full load mode is not supported).
+	</description>
+	<tutorials>
+	</tutorials>
+</class>

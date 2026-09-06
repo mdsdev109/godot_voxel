@@ -79,6 +79,7 @@ public:
 
 	StringName _rpc_receive_blocks;
 	StringName _rpc_receive_area;
+	StringName _rpc_request_blocks;
 
 	StringName unnamed;
 	StringName air;
