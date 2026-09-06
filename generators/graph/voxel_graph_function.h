@@ -98,6 +98,7 @@ public:
 		NODE_RELAY,
 		NODE_SPOTS_2D,
 		NODE_SPOTS_3D,
+		NODE_PLANET_NOISE_3D,
 
 	// Optional features down (to avoid diffs in docs when building both versions)
 	// Keep in mind this enum's values should not be used in persistent context (saves)

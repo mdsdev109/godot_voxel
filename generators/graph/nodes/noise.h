@@ -6,12 +6,15 @@
 #include "../../../util/profiling.h"
 #include "../node_type_db.h"
 
+#include "core/math/planet_hash_noise.h"
+
 #ifdef VOXEL_ENABLE_FAST_NOISE_2
 #include "../../../util/noise/fast_noise_2.h"
 #endif
 
 #ifdef VOXEL_ENABLE_GPU
 #include "../../../shaders/fast_noise_lite_shader.h"
+#include "core/math/planet_hash_noise_shader.h"
 #endif
 
 namespace zylann::voxel::pg {
@@ -951,6 +954,134 @@ void register_noise_nodes(Span<NodeType> types) {
 		// TODO Support shader code for the Spots3D node
 		// t.shader_gen_func = [](ShaderGenContext &ctx) {
 		// };
+	}
+	{
+		// The compiler stores node params in a trivially-copyable blob, so this cannot hold
+		// PlanetHashNoise::FbmParams directly (that struct has default member initializers, which
+		// make it non-trivial). Keep plain scalars here and assemble FbmParams at use.
+		struct Params {
+			uint32_t seed;
+			float period;
+			int32_t octaves;
+			float lacunarity;
+			float gain;
+
+			PlanetHashNoise::FbmParams to_fbm() const {
+				PlanetHashNoise::FbmParams p;
+				p.seed = seed;
+				p.period = period;
+				p.octaves = octaves;
+				p.lacunarity = lacunarity;
+				p.gain = gain;
+				return p;
+			}
+		};
+
+		NodeType &t = types[VoxelGraphFunction::NODE_PLANET_NOISE_3D];
+		t.name = "PlanetNoise3D";
+		t.category = CATEGORY_GENERATE;
+		t.inputs.push_back(NodeType::Port("x", 0.f, VoxelGraphFunction::AUTO_CONNECT_X));
+		t.inputs.push_back(NodeType::Port("y", 0.f, VoxelGraphFunction::AUTO_CONNECT_Y));
+		t.inputs.push_back(NodeType::Port("z", 0.f, VoxelGraphFunction::AUTO_CONNECT_Z));
+		t.outputs.push_back(NodeType::Port("out"));
+		t.params.push_back(NodeType::Param("seed", Variant::INT, 0));
+		{
+			NodeType::Param p("period", Variant::FLOAT, 128.0);
+			p.min_value = 0.0001;
+			p.max_value = 100000000.0;
+			p.has_range = true;
+			t.params.push_back(p);
+		}
+		{
+			NodeType::Param p("octaves", Variant::INT, 4);
+			p.min_value = 1;
+			p.max_value = 32;
+			p.has_range = true;
+			t.params.push_back(p);
+		}
+		{
+			NodeType::Param p("lacunarity", Variant::FLOAT, 2.0);
+			p.min_value = 1.0;
+			p.max_value = 8.0;
+			p.has_range = true;
+			t.params.push_back(p);
+		}
+		{
+			NodeType::Param p("gain", Variant::FLOAT, 0.5);
+			p.min_value = 0.0;
+			p.max_value = 1.0;
+			p.has_range = true;
+			t.params.push_back(p);
+		}
+
+		t.compile_func = [](CompileContext &ctx) {
+			Params params;
+			params.seed = uint32_t(ctx.get_param(0).operator int());
+			params.period = ctx.get_param(1);
+			params.octaves = ctx.get_param(2).operator int();
+			params.lacunarity = ctx.get_param(3);
+			params.gain = ctx.get_param(4);
+
+			// The fuzzing test feeds arbitrary parameters, so these have to be errors rather than
+			// assumptions.
+			if (params.period <= 0.0001f) {
+				ctx.make_error(ZN_TTR("Period is too small"));
+				return;
+			}
+			if (params.octaves < 1 || params.octaves > 32) {
+				ctx.make_error(ZN_TTR("Octaves must be between 1 and 32"));
+				return;
+			}
+			if (params.lacunarity < 1.f) {
+				ctx.make_error(ZN_TTR("Lacunarity must be at least 1"));
+				return;
+			}
+			if (params.gain < 0.f || params.gain > 1.f) {
+				ctx.make_error(ZN_TTR("Gain must be between 0 and 1"));
+				return;
+			}
+
+			ctx.set_params(params);
+		};
+
+		t.process_buffer_func = [](Runtime::ProcessBufferContext &ctx) {
+			ZN_PROFILE_SCOPE_NAMED("NODE_PLANET_NOISE_3D");
+			const Runtime::Buffer &x = ctx.get_input(0);
+			const Runtime::Buffer &y = ctx.get_input(1);
+			const Runtime::Buffer &z = ctx.get_input(2);
+			Runtime::Buffer &out = ctx.get_output(0);
+			const Params params = ctx.get_params<Params>();
+			PlanetHashNoise::fbm_3d_series(x.data, y.data, z.data, out.data, out.size, params.to_fbm());
+		};
+
+		t.range_analysis_func = [](Runtime::RangeAnalysisContext &ctx) {
+			// fbm_3d divides by the sum of octave amplitudes and perlin_3d is normalized by
+			// 2/sqrt(3), so [-1, 1] is an exact bound rather than a conservative guess. The small
+			// margin covers float rounding at the extremes.
+			ctx.set_output(0, Interval(-1.001f, 1.001f));
+		};
+
+#ifdef VOXEL_ENABLE_GPU
+		t.shader_gen_func = [](ShaderGenContext &ctx) {
+			ctx.require_lib_code("vg_planet_hash_noise", g_planet_hash_noise_shader);
+			ctx.add_format(
+					// `uint(int)` in GLSL is a two's-complement reinterpretation, matching the C++
+					// side's uint32_t(int32_t). Emitting the seed as a signed literal wrapped in
+					// uint() therefore round-trips negative seeds correctly, and CodeGenHelper has
+					// no unsigned overload anyway.
+					"{} = zn_planet_fbm_3d({}, {}, {}, uint({}), {}, {}, {}, {});\n",
+					ctx.get_output_name(0),
+					ctx.get_input_name(0),
+					ctx.get_input_name(1),
+					ctx.get_input_name(2),
+					ctx.get_param(0).operator int(),
+					float(ctx.get_param(1)),
+					ctx.get_param(2).operator int(),
+					float(ctx.get_param(3)),
+					float(ctx.get_param(4))
+			);
+		};
+#endif
 	}
 }
 

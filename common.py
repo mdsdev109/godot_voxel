@@ -192,6 +192,8 @@ def get_sources(env, is_editor_build):
             "tests/voxel/test_curve_range.cpp",
             "tests/voxel/test_edition_funcs.cpp",
             "tests/voxel/test_octree.cpp",
+            "tests/voxel/test_planet_field_bench.cpp",
+            "tests/voxel/test_planet_field_check.cpp",
             "tests/voxel/test_raycast.cpp",
             "tests/voxel/test_region_file.cpp",
             "tests/voxel/test_storage_funcs.cpp",
