@@ -524,6 +524,21 @@ void check_floor_clamp() {
 	check(dry.has_water(), "sea level above bedrock means the planet has water");
 }
 
+void check_smooth_terracing() {
+	PlanetFieldData data;
+	data.terrace_step = 100.0;
+	check(Math::is_equal_approx(data.apply_terracing(12.5, 1.f), 0.0),
+			"full terracing creates a flat lower quarter-step shelf");
+	check(Math::is_equal_approx(data.apply_terracing(50.0, 1.f), 50.0),
+			"the cubic terrace transition crosses the original height at mid-step");
+	check(Math::is_equal_approx(data.apply_terracing(87.5, 1.f), 100.0),
+			"full terracing creates a flat upper quarter-step shelf");
+	check(Math::is_equal_approx(data.apply_terracing(12.5, 0.5f), 6.25),
+			"partial terrace strength blends continuously with the original field");
+	check(Math::is_equal_approx(data.apply_terracing(-12.5, 1.f), 0.0),
+			"terrace levels remain symmetric below the base radius");
+}
+
 // Same contract as check_field_scalar_vs_batched, but with every Phase A feature switched on at once.
 // The collider uses the batched path and the renderer uses the scalar one; if they diverge, the
 // ground you see is not the ground you stand on.
@@ -846,6 +861,10 @@ PlanetFieldData make_biome_field() {
 	data.macro_height_scale = 12000.0;
 	data.mountain_amplitude = 1.5;
 	data.mountain_ridge = 0.8;
+	data.terrace_step = 100.0;
+	for (int i = 0; i < data.biomes.count; ++i) {
+		data.biomes.entries[i].terrace_strength = 0.65f;
+	}
 	data.warp.amplitude = 300.f;
 	data.warp.period = 40000.f;
 	data.slope_erosion = 1.0;
@@ -1053,6 +1072,7 @@ void run_planet_field_check() {
 	check_shape_bounds_exact();
 	check_slope_erosion_bounded();
 	check_floor_clamp();
+	check_smooth_terracing();
 	check_shaped_scalar_vs_batched();
 	check_lipschitz_with_features();
 
