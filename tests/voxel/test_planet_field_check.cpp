@@ -528,11 +528,17 @@ void check_smooth_terracing() {
 	PlanetFieldData data;
 	data.terrace_step = 100.0;
 	check(Math::is_equal_approx(data.apply_terracing(12.5, 1.f), 0.0),
-			"full terracing creates a flat lower quarter-step shelf");
+			"full terracing creates a broad flat lower shelf");
+	check(Math::is_equal_approx(data.apply_terracing(40.0, 1.f), 0.0),
+			"the lower shelf remains flat through forty percent of the step");
+	check(data.apply_terracing(41.0, 1.f) > 0.0,
+			"the narrow terrace transition begins immediately above forty percent");
 	check(Math::is_equal_approx(data.apply_terracing(50.0, 1.f), 50.0),
 			"the cubic terrace transition crosses the original height at mid-step");
+	check(Math::is_equal_approx(data.apply_terracing(60.0, 1.f), 100.0),
+			"the upper shelf begins by sixty percent of the step");
 	check(Math::is_equal_approx(data.apply_terracing(87.5, 1.f), 100.0),
-			"full terracing creates a flat upper quarter-step shelf");
+			"full terracing creates a broad flat upper shelf");
 	check(Math::is_equal_approx(data.apply_terracing(12.5, 0.5f), 6.25),
 			"partial terrace strength blends continuously with the original field");
 	check(Math::is_equal_approx(data.apply_terracing(-12.5, 1.f), 0.0),
