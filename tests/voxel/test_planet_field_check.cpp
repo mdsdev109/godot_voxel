@@ -584,6 +584,51 @@ void check_unshelved_offset_matches_radius() {
 	check(mismatches == 0, "eval_radius is exactly the terraced unshelved offset");
 }
 
+// Plateaus climb only inside the middle `plateau_edge` of each level, and a full level is exactly one
+// plateau_height at full strength. Checked on the shaping alone, along a line through the mask.
+void check_plateau_shape() {
+	PlanetFieldData data;
+	data.base_radius = PLANET_RADIUS_M;
+	data.plateau_height = 100.0;
+	data.plateau_period = 5000.0;
+	data.plateau_levels = 3;
+	data.plateau_edge = 0.1;
+	RandomPCG rng(3141);
+	uint32_t flat_moves = 0;
+	uint32_t climbs = 0;
+	uint32_t whole_levels_wrong = 0;
+	for (uint32_t i = 0; i < 20000; ++i) {
+		Vector3 d(double(rng.randf()) - 0.5, double(rng.randf()) - 0.5, double(rng.randf()) - 0.5);
+		if (d.length_squared() < 1e-12) {
+			continue;
+		}
+		d.normalize();
+		const double t = data.plateau_phase(d);
+		const double phase = t - Math::floor(t);
+		const double h = data.plateau_offset(d, 1.f);
+		const bool on_shelf = Math::abs(phase - 0.5) > 0.05 + 1e-9;
+		if (on_shelf) {
+			// On a shelf the height is a whole number of levels.
+			const double levels = h / data.plateau_height;
+			if (Math::abs(levels - Math::round(levels)) > 1e-9) {
+				++whole_levels_wrong;
+			}
+		} else {
+			++climbs;
+		}
+		if (on_shelf && phase < 0.45 && Math::abs(h - Math::floor(t) * data.plateau_height) > 1e-9) {
+			++flat_moves;
+		}
+	}
+	check(whole_levels_wrong == 0 && flat_moves == 0, "plateau shelves sit at whole levels and do not move off the wall");
+	check(climbs > 0, "some samples actually fall on a plateau wall (test is not vacuous)");
+	check(Math::is_equal_approx(data.plateau_offset(Vector3(0, 1, 0), 0.5f), 0.5 * data.plateau_offset(Vector3(0, 1, 0), 1.f)),
+			"plateau strength scales the height linearly");
+	PlanetFieldData off = data;
+	off.plateau_height = 0.0;
+	check(off.plateau_offset(Vector3(0, 1, 0), 1.f) == 0.0, "zero plateau height disables the layer");
+}
+
 // Same contract as check_field_scalar_vs_batched, but with every Phase A feature switched on at once.
 // The collider uses the batched path and the renderer uses the scalar one; if they diverge, the
 // ground you see is not the ground you stand on.
@@ -907,8 +952,14 @@ PlanetFieldData make_biome_field() {
 	data.mountain_amplitude = 1.5;
 	data.mountain_ridge = 0.8;
 	data.terrace_step = 100.0;
+	// Plateaus on too, so the bounds, scalar/batched and Lipschitz checks below all cover them.
+	data.plateau_height = 150.0;
+	data.plateau_period = 20000.0;
+	data.plateau_levels = 3;
+	data.plateau_edge = 0.08;
 	for (int i = 0; i < data.biomes.count; ++i) {
 		data.biomes.entries[i].terrace_strength = 0.65f;
+		data.biomes.entries[i].plateau_strength = 0.8f;
 	}
 	data.warp.amplitude = 300.f;
 	data.warp.period = 40000.f;
@@ -1119,6 +1170,7 @@ void run_planet_field_check() {
 	check_floor_clamp();
 	check_smooth_terracing();
 	check_terrace_riser_width();
+	check_plateau_shape();
 	check_unshelved_offset_matches_radius();
 	check_shaped_scalar_vs_batched();
 	check_lipschitz_with_features();
