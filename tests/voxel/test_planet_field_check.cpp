@@ -545,6 +545,45 @@ void check_smooth_terracing() {
 			"terrace levels remain symmetric below the base radius");
 }
 
+void check_terrace_riser_width() {
+	PlanetFieldData data;
+	data.terrace_step = 100.0;
+	data.terrace_riser = 0.5;
+	check(Math::is_equal_approx(data.apply_terracing(24.0, 1.f), 0.0),
+			"a half-step riser leaves the lower shelf flat to a quarter of the step");
+	check(data.apply_terracing(26.0, 1.f) > 0.0,
+			"a half-step riser starts climbing just past a quarter of the step");
+	check(Math::is_equal_approx(data.apply_terracing(50.0, 1.f), 50.0),
+			"a riser of any width crosses the original height at mid-step");
+	check(Math::is_equal_approx(data.apply_terracing(76.0, 1.f), 100.0),
+			"a half-step riser reaches the upper shelf by three quarters of the step");
+	// The negative control: the default riser is still on its lower shelf where this one has risen.
+	PlanetFieldData narrow = data;
+	narrow.terrace_riser = 0.2;
+	check(Math::is_equal_approx(narrow.apply_terracing(30.0, 1.f), 0.0) && data.apply_terracing(30.0, 1.f) > 0.0,
+			"the riser width actually changes where the climb begins");
+}
+
+// What the cliff placer reads has to be what eval_radius terraces. With no coast and the floor out
+// of reach the radius is exactly the base plus the shelved unshelved offset.
+void check_unshelved_offset_matches_radius() {
+	Ref<PlanetField3D> field = make_field();
+	PlanetFieldData data = field->get_data();
+	data.floor_radius = data.base_radius - 1.0e6;
+	data.terrace_step = 37.0;
+	RandomPCG rng(4242);
+	uint32_t mismatches = 0;
+	for (uint32_t i = 0; i < 512; ++i) {
+		const Vector3 d = random_unit_dir(rng);
+		float strength = 0.f;
+		const double offset = data.eval_unshelved_offset(d, strength);
+		if (data.eval_radius(d) != data.base_radius + data.coast_offset(d, data.apply_terracing(offset, strength))) {
+			++mismatches;
+		}
+	}
+	check(mismatches == 0, "eval_radius is exactly the terraced unshelved offset");
+}
+
 // Same contract as check_field_scalar_vs_batched, but with every Phase A feature switched on at once.
 // The collider uses the batched path and the renderer uses the scalar one; if they diverge, the
 // ground you see is not the ground you stand on.
@@ -1079,6 +1118,8 @@ void run_planet_field_check() {
 	check_slope_erosion_bounded();
 	check_floor_clamp();
 	check_smooth_terracing();
+	check_terrace_riser_width();
+	check_unshelved_offset_matches_radius();
 	check_shaped_scalar_vs_batched();
 	check_lipschitz_with_features();
 
