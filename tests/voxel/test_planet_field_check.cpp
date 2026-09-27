@@ -957,9 +957,18 @@ PlanetFieldData make_biome_field() {
 	data.plateau_period = 20000.0;
 	data.plateau_levels = 3;
 	data.plateau_edge = 0.08;
+	// Landforms on too, both layers, at full strength in every biome.
+	data.landforms.major.period = 8000.0;
+	data.landforms.major.height = 700.0;
+	data.landforms.major.tier_step = 45.0;
+	data.landforms.minor.period = 1600.0;
+	data.landforms.minor.height = 110.0;
+	data.landforms.minor.tier_step = 18.0;
 	for (int i = 0; i < data.biomes.count; ++i) {
 		data.biomes.entries[i].terrace_strength = 0.65f;
 		data.biomes.entries[i].plateau_strength = 0.8f;
+		data.biomes.entries[i].landform_strength = 1.f;
+		data.biomes.entries[i].hill_strength = 1.f;
 	}
 	data.warp.amplitude = 300.f;
 	data.warp.period = 40000.f;
@@ -1025,6 +1034,34 @@ void check_biome_scalar_vs_batched() {
 	}
 	check(mismatches == 0, "scalar and batched radii agree exactly with biomes enabled");
 	print_line(format("        {} of {} differ", mismatches, count));
+}
+
+// The bounds, bit-identity and Lipschitz checks above all run with landforms on, but pass just as well
+// if the landforms never reach the surface. This proves they do: the same field with both layers
+// disabled must differ, by mountain heights, over a real share of the planet.
+void check_landforms_change_surface() {
+	const PlanetFieldData on = make_biome_field();
+	PlanetFieldData off = on;
+	off.landforms.major.height = 0.0;
+	off.landforms.minor.height = 0.0;
+	RandomPCG rng(4242);
+	double max_rise = 0.0;
+	uint32_t raised = 0;
+	const uint32_t samples = 40000;
+	for (uint32_t i = 0; i < samples; ++i) {
+		Vector3 d(double(rng.randf()) - 0.5, double(rng.randf()) - 0.5, double(rng.randf()) - 0.5);
+		if (d.length_squared() < 1e-12) {
+			continue;
+		}
+		d.normalize();
+		const double rise = on.eval_radius(d) - off.eval_radius(d);
+		max_rise = MAX(max_rise, rise);
+		if (rise > 20.0) {
+			++raised;
+		}
+	}
+	print_line(format("        landforms raise {} of {} samples by over 20 m, highest {} m", raised, samples, max_rise));
+	check(max_rise > 300.0 && raised > samples / 10, "landforms actually raise mountains over a real share of the surface");
 }
 
 void check_biome_lipschitz() {
@@ -1186,6 +1223,7 @@ void run_planet_field_check() {
 	check_biome_global_bounds();
 	check_biome_scalar_vs_batched();
 	check_biome_lipschitz();
+	check_landforms_change_surface();
 	check_macro_map_image_roundtrip();
 	check_biomes_change_the_surface();
 	check_coastal_field();
