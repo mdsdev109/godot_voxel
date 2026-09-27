@@ -79,6 +79,7 @@
 
 #ifdef VOXEL_ENABLE_BASIC_GENERATORS
 #include "generators/simple/voxel_generator_flat.h"
+#include "generators/simple/voxel_generator_planet.h"
 #include "generators/simple/voxel_generator_heightmap.h"
 #include "generators/simple/voxel_generator_image.h"
 #include "generators/simple/voxel_generator_noise.h"
@@ -364,6 +365,7 @@ void initialize_voxel_module(ModuleInitializationLevel p_level) {
 
 #ifdef VOXEL_ENABLE_BASIC_GENERATORS
 		ClassDB::register_class<VoxelGeneratorFlat>();
+		ClassDB::register_class<VoxelGeneratorPlanet>();
 		ClassDB::register_abstract_class<VoxelGeneratorHeightmap>();
 		ClassDB::register_class<VoxelGeneratorWaves>();
 		ClassDB::register_class<VoxelGeneratorImage>();
