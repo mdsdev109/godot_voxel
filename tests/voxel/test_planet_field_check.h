@@ -22,6 +22,13 @@ namespace zylann::voxel::tests {
 // Run with: <godot binary> --headless --quit --run_planet_field_check
 void run_planet_field_check();
 
+// Prints a digest of f over a fixed set of directions, one per layer of the field, so two builds or two
+// machines can be compared bit for bit. Not a check: it has nothing to compare against on its own.
+// Set PLANET_FIELD_DIGEST_OUT to also write the final layer's radii as raw doubles.
+//
+// Run with: <godot binary> --headless --quit --run_planet_field_digest
+void run_planet_field_digest();
+
 } // namespace zylann::voxel::tests
 
 #endif // VOXEL_TEST_PLANET_FIELD_CHECK_H

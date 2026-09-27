@@ -440,6 +440,7 @@ void initialize_voxel_module(ModuleInitializationLevel p_level) {
 		// for a while. See tests/voxel/test_planet_field_bench.h.
 		const String planet_field_bench_cmd = "--run_planet_field_bench";
 		const String planet_field_check_cmd = "--run_planet_field_check";
+		const String planet_field_digest_cmd = "--run_planet_field_digest";
 
 		for (int i = 0; i < command_line_arguments.size(); ++i) {
 			const String arg = command_line_arguments[i];
@@ -453,6 +454,10 @@ void initialize_voxel_module(ModuleInitializationLevel p_level) {
 			}
 			if (arg == planet_field_check_cmd) {
 				zylann::voxel::tests::run_planet_field_check();
+				break;
+			}
+			if (arg == planet_field_digest_cmd) {
+				zylann::voxel::tests::run_planet_field_digest();
 				break;
 			}
 		}

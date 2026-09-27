@@ -13,11 +13,14 @@
 #include "core/math/planet_hash_noise.h"
 #include "core/math/planet_biome.h"
 #include "core/math/planet_field.h"
+#include "core/math/planet_lattice.h"
+#include "core/os/os.h"
 #include "scene/resources/3d/planet_biome_3d.h"
 #include "scene/resources/3d/planet_field_3d.h"
 
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 namespace zylann::voxel::tests {
@@ -1184,7 +1187,112 @@ void check_coastal_field() {
 	check(!planet_field_equal(data, changed), "coast edits invalidate field/collider equality");
 }
 
+uint64_t fnv_bits(uint64_t p_hash, const double p_value) {
+	uint64_t bits;
+	std::memcpy(&bits, &p_value, sizeof(bits));
+	for (int k = 0; k < 8; ++k) {
+		p_hash = (p_hash ^ ((bits >> (8 * k)) & 0xff)) * 1099511628211ull;
+	}
+	return p_hash;
+}
+
 } // namespace
+
+void run_planet_field_digest() {
+	print_line("============ Planet field digest ============");
+	// Each stage adds one layer of the field, so a digest that differs between two machines names the
+	// first layer that is not reproducible.
+	PlanetFieldData plain;
+	plain.base_radius = PLANET_RADIUS_M;
+	plain.amplitude = PLANET_AMPLITUDE_M;
+	plain.fbm = make_fbm();
+
+	PlanetFieldData biomes = make_biome_field();
+	biomes.landforms.major.height = 0.0;
+	biomes.landforms.minor.height = 0.0;
+
+	const PlanetFieldData landforms = make_biome_field();
+
+	PlanetFieldData coast = make_biome_field();
+	coast.sea_level_radius = coast.base_radius + 600.0;
+	coast.coast.enabled = true;
+	coast.coast.noise_period = coast.fbm.period * 8.f;
+	coast.coast.character_period = coast.fbm.period * 32.f;
+
+	const uint32_t count = 100000;
+	StdVector<Vector3> dirs(count);
+	RandomPCG rng(31337);
+	for (uint32_t i = 0; i < count; ++i) {
+		// One draw per statement. C++ leaves the order of function arguments unspecified -- gcc goes
+		// right to left, clang left to right -- so three draws inside one constructor call produce a
+		// different direction set on each compiler.
+		const double x = double(rng.randf()) - 0.5;
+		const double y = double(rng.randf()) - 0.5;
+		const double z = double(rng.randf()) - 0.5;
+		Vector3 d(x, y, z);
+		if (d.length_squared() < 1e-12) {
+			d = Vector3(0, 1, 0);
+		}
+		dirs[i] = d.normalized();
+	}
+
+	uint64_t dir_hash = 1469598103934665603ull;
+	for (uint32_t i = 0; i < count; ++i) {
+		dir_hash = fnv_bits(fnv_bits(fnv_bits(dir_hash, dirs[i].x), dirs[i].y), dirs[i].z);
+	}
+	print_line(format("  directions  {}", String::num_uint64(dir_hash, 16)));
+
+	const PlanetFieldData *stages[] = { &plain, &biomes, &landforms, &coast };
+	const char *names[] = { "noise", "biomes", "landforms", "coast" };
+	StdVector<double> radii(count);
+	for (int s = 0; s < 4; ++s) {
+		uint64_t h = 1469598103934665603ull;
+		for (uint32_t i = 0; i < count; ++i) {
+			radii[i] = stages[s]->eval_radius(dirs[i]);
+			h = fnv_bits(h, radii[i]);
+		}
+		print_line(format("  {}  {}", names[s], String::num_uint64(h, 16)));
+	}
+
+	// Double-precision outputs that are never narrowed to float, so a last-bit difference in a libm
+	// call shows here even when the radius above absorbs it: the landform height before it joins the
+	// float offset, and the lattice mapping in both directions (tan and atan), which anything placed or
+	// navigated on the lattice depends on.
+	{
+		const float strength[2] = { 1.f, 1.f };
+		uint64_t h = 1469598103934665603ull;
+		for (uint32_t i = 0; i < count; ++i) {
+			h = fnv_bits(h, landforms.landform_offset(dirs[i], strength));
+		}
+		print_line(format("  landform_offset  {}", String::num_uint64(h, 16)));
+
+		PlanetLattice lattice;
+		lattice.resolution = 1u << 20;
+		h = 1469598103934665603ull;
+		for (uint32_t i = 0; i < count; ++i) {
+			int face;
+			double s, t;
+			PlanetLattice::direction_to_face(dirs[i], face, s, t);
+			h = fnv_bits(fnv_bits(h, s), t);
+			const Vector3 v = lattice.vertex_direction(int(i % 6), (i * 2654435761u) % lattice.resolution, (i * 40503u) % lattice.resolution);
+			h = fnv_bits(fnv_bits(fnv_bits(h, v.x), v.y), v.z);
+		}
+		print_line(format("  lattice  {}", String::num_uint64(h, 16)));
+	}
+
+	// The last stage's radii, one double per direction, for counting how many samples two machines
+	// disagree on and by how much.
+	const String out = OS::get_singleton()->get_environment("PLANET_FIELD_DIGEST_OUT");
+	if (!out.is_empty()) {
+		FILE *f = std::fopen(out.utf8().get_data(), "wb");
+		if (f != nullptr) {
+			std::fwrite(radii.data(), sizeof(double), count, f);
+			std::fclose(f);
+			print_line(format("  wrote {} radii to {}", count, out));
+		}
+	}
+	print_line("=============================================");
+}
 
 void run_planet_field_check() {
 	print_line("============ Planet field checks (Phase 2) ============");
