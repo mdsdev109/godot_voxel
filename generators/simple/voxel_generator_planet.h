@@ -39,6 +39,19 @@ public:
 	// need the undug surface without a terrain.
 	float get_sdf_at(const Vector3 &p_voxel_position) const;
 
+	// Dig sites sit on a grid of cube-sphere lattice cells, `p_resolution` per face edge. These place
+	// them, with PlanetLattice's deterministic mapping, so every machine puts a site in exactly the same
+	// place -- which the voxels replayed on top of it depend on.
+	//
+	// The cell (face, i, j) containing a planet-space point.
+	static Vector3i site_key_of(const Vector3 &p_point, int p_resolution);
+	// Voxel space to planet space for the site in cell (face, i, j): x along the cell's i direction,
+	// y up, z = x cross y; one unit per voxel, the voxel edge chosen so `p_voxels_across` voxels span
+	// the cell; voxel (0, 0, 0) at a corner of the footprint, `p_voxels_below` voxels under the surface
+	// at the cell's centre.
+	static Transform3D make_site_transform(const Ref<PlanetField3D> &p_field, const Vector3i &p_key, int p_resolution,
+			int p_voxels_across, int p_voxels_below);
+
 protected:
 	static void _bind_methods();
 

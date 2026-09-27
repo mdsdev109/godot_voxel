@@ -1,6 +1,8 @@
 #include "voxel_generator_planet.h"
 #include "../../util/containers/std_vector.h"
 
+#include "core/math/planet_lattice.h"
+
 #ifdef ZN_GODOT
 #include "../../util/godot/core/class_db.h"
 #endif
@@ -118,12 +120,53 @@ VoxelGenerator::Result VoxelGeneratorPlanet::generate_block(VoxelGenerator::Voxe
 	return result;
 }
 
+Vector3i VoxelGeneratorPlanet::site_key_of(const Vector3 &p_point, int p_resolution) {
+	int face = 0;
+	double s = 0.0;
+	double t = 0.0;
+	PlanetLattice::direction_to_face(p_point.normalized(), face, s, t);
+	const int res = MAX(p_resolution, 1);
+	const int i = CLAMP(int(Math::floor((s + 1.0) * 0.5 * res)), 0, res - 1);
+	const int j = CLAMP(int(Math::floor((t + 1.0) * 0.5 * res)), 0, res - 1);
+	return Vector3i(face, i, j);
+}
+
+Transform3D VoxelGeneratorPlanet::make_site_transform(const Ref<PlanetField3D> &p_field, const Vector3i &p_key, int p_resolution,
+		int p_voxels_across, int p_voxels_below) {
+	ERR_FAIL_COND_V(p_field.is_null(), Transform3D());
+	const double res = double(MAX(p_resolution, 1));
+	auto dir_at = [&](double p_i, double p_j) -> Vector3 {
+		const double s = PlanetLattice::face_warp((2.0 * p_i) / res - 1.0);
+		const double t = PlanetLattice::face_warp((2.0 * p_j) / res - 1.0);
+		return PlanetLattice::cube_point(p_key.x, s, t).normalized();
+	};
+	const double ci = double(p_key.y) + 0.5;
+	const double cj = double(p_key.z) + 0.5;
+	const Vector3 up = dir_at(ci, cj);
+	// The cell's i direction, flattened into the tangent plane at its centre.
+	const Vector3 across_i = dir_at(ci + 0.5, cj) - dir_at(ci - 0.5, cj);
+	const Vector3 x_axis = (across_i - up * across_i.dot(up)).normalized();
+	const Vector3 z_axis = x_axis.cross(up);
+	// The cell's width in metres at the surface, averaged over both directions; the voxel edge follows.
+	const double radius = double(p_field->eval_radius(up));
+	const Vector3 across_j = dir_at(ci, cj + 0.5) - dir_at(ci, cj - 0.5);
+	const double width = 0.5 * (across_i.length() + across_j.length()) * radius;
+	const double voxel = width / double(MAX(p_voxels_across, 1));
+	const Vector3 centre = up * radius;
+	const double half = 0.5 * double(p_voxels_across) * voxel;
+	const Vector3 origin = centre - up * (double(p_voxels_below) * voxel) - x_axis * half - z_axis * half;
+	return Transform3D(Basis(x_axis * voxel, up * voxel, z_axis * voxel), origin);
+}
+
 void VoxelGeneratorPlanet::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_field", "field"), &VoxelGeneratorPlanet::set_field);
 	ClassDB::bind_method(D_METHOD("get_field"), &VoxelGeneratorPlanet::get_field);
 	ClassDB::bind_method(D_METHOD("set_voxel_to_planet", "transform"), &VoxelGeneratorPlanet::set_voxel_to_planet);
 	ClassDB::bind_method(D_METHOD("get_voxel_to_planet"), &VoxelGeneratorPlanet::get_voxel_to_planet);
 	ClassDB::bind_method(D_METHOD("get_sdf_at", "voxel_position"), &VoxelGeneratorPlanet::get_sdf_at);
+	ClassDB::bind_static_method("VoxelGeneratorPlanet", D_METHOD("site_key_of", "point", "resolution"), &VoxelGeneratorPlanet::site_key_of);
+	ClassDB::bind_static_method("VoxelGeneratorPlanet", D_METHOD("make_site_transform", "field", "key", "resolution", "voxels_across", "voxels_below"),
+			&VoxelGeneratorPlanet::make_site_transform);
 
 	ADD_PROPERTY(PropertyInfo(Variant::OBJECT, "field", PROPERTY_HINT_RESOURCE_TYPE, "PlanetField3D"), "set_field", "get_field");
 	ADD_PROPERTY(PropertyInfo(Variant::TRANSFORM3D, "voxel_to_planet"), "set_voxel_to_planet", "get_voxel_to_planet");
