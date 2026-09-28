@@ -52,6 +52,21 @@ public:
 	static Transform3D make_site_transform(const Ref<PlanetField3D> &p_field, const Vector3i &p_key, int p_resolution,
 			int p_voxels_across, int p_voxels_below);
 
+	// Carves: spheres removed from the ground, in voxel coordinates. A voxel's value is
+	// max(field, radius - distance) over every carve whose influence box -- the sphere's bounding cube
+	// grown by CARVE_MARGIN voxels -- contains it. Plain IEEE arithmetic and an exactly commutative max,
+	// so a site's voxels are a pure function of the field and its set of carves: independent of the
+	// order carves arrive in, of how often one is applied, and of the machine.
+	//
+	// (godot_voxel's own do_sphere is none of those things: it computes lerp(a, max(a, -b), strength),
+	// and a + (x - a) is not x in floating point, so the result depends on the value it started from.)
+	static constexpr int CARVE_MARGIN = 2;
+	void add_carve(const Vector3 &p_centre, double p_radius);
+	void clear_carves();
+	int get_carve_count() const;
+	// The voxel box a carve can change, for regenerating it: [position, size].
+	static AABB get_carve_box(const Vector3 &p_centre, double p_radius);
+
 protected:
 	static void _bind_methods();
 
@@ -61,6 +76,8 @@ private:
 		bool has_field = false;
 		Transform3D voxel_to_planet;
 		double inv_voxel_size = 1.0;
+		LocalVector<Vector3> carve_centres;
+		LocalVector<double> carve_radii;
 	};
 
 	Ref<PlanetField3D> _field;

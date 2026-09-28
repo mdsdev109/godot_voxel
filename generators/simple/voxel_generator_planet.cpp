@@ -107,17 +107,64 @@ VoxelGenerator::Result VoxelGeneratorPlanet::generate_block(VoxelGenerator::Voxe
 	}
 	params.field.eval_radius_batch(dirs.data(), sx.data(), sy.data(), sz.data(), noise.data(), radii.data(), count);
 
+	// Only the carves whose influence box meets this block.
+	LocalVector<uint32_t> nearby;
+	const Vector3 block_lo(origin.x, origin.y, origin.z);
+	const Vector3 block_hi(origin.x + (bs.x - 1) * stride, origin.y + (bs.y - 1) * stride, origin.z + (bs.z - 1) * stride);
+	for (uint32_t c = 0; c < params.carve_centres.size(); ++c) {
+		const double reach = params.carve_radii[c] + CARVE_MARGIN;
+		const Vector3 &cc = params.carve_centres[c];
+		if (cc.x + reach >= block_lo.x && cc.x - reach <= block_hi.x && cc.y + reach >= block_lo.y &&
+				cc.y - reach <= block_hi.y && cc.z + reach >= block_lo.z && cc.z - reach <= block_hi.z) {
+			nearby.push_back(c);
+		}
+	}
+
 	i = 0;
 	for (int z = 0; z < bs.z; ++z) {
 		for (int x = 0; x < bs.x; ++x) {
 			for (int y = 0; y < bs.y; ++y) {
-				const float sdf = float((planet_r[i] - radii[i]) * params.inv_voxel_size);
-				out_buffer.set_voxel_f(sdf, x, y, z, VoxelBuffer::CHANNEL_SDF);
+				double sdf = (planet_r[i] - radii[i]) * params.inv_voxel_size;
+				if (!nearby.is_empty()) {
+					const Vector3 local(origin.x + x * stride, origin.y + y * stride, origin.z + z * stride);
+					for (const uint32_t c : nearby) {
+						const Vector3 d = local - params.carve_centres[c];
+						const double reach = params.carve_radii[c] + CARVE_MARGIN;
+						if (Math::abs(d.x) <= reach && Math::abs(d.y) <= reach && Math::abs(d.z) <= reach) {
+							sdf = MAX(sdf, params.carve_radii[c] - d.length());
+						}
+					}
+				}
+				out_buffer.set_voxel_f(float(sdf), x, y, z, VoxelBuffer::CHANNEL_SDF);
 				++i;
 			}
 		}
 	}
 	return result;
+}
+
+void VoxelGeneratorPlanet::add_carve(const Vector3 &p_centre, double p_radius) {
+	RWLockWrite wlock(_parameters_lock);
+	_parameters.carve_centres.push_back(p_centre);
+	_parameters.carve_radii.push_back(p_radius);
+}
+
+void VoxelGeneratorPlanet::clear_carves() {
+	RWLockWrite wlock(_parameters_lock);
+	_parameters.carve_centres.clear();
+	_parameters.carve_radii.clear();
+}
+
+int VoxelGeneratorPlanet::get_carve_count() const {
+	RWLockRead rlock(_parameters_lock);
+	return int(_parameters.carve_centres.size());
+}
+
+AABB VoxelGeneratorPlanet::get_carve_box(const Vector3 &p_centre, double p_radius) {
+	const double reach = p_radius + CARVE_MARGIN;
+	const Vector3 lo(Math::floor(p_centre.x - reach), Math::floor(p_centre.y - reach), Math::floor(p_centre.z - reach));
+	const Vector3 hi(Math::ceil(p_centre.x + reach), Math::ceil(p_centre.y + reach), Math::ceil(p_centre.z + reach));
+	return AABB(lo, hi - lo + Vector3(1, 1, 1));
 }
 
 Vector3i VoxelGeneratorPlanet::site_key_of(const Vector3 &p_point, int p_resolution) {
@@ -165,6 +212,10 @@ void VoxelGeneratorPlanet::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_voxel_to_planet"), &VoxelGeneratorPlanet::get_voxel_to_planet);
 	ClassDB::bind_method(D_METHOD("get_sdf_at", "voxel_position"), &VoxelGeneratorPlanet::get_sdf_at);
 	ClassDB::bind_static_method("VoxelGeneratorPlanet", D_METHOD("site_key_of", "point", "resolution"), &VoxelGeneratorPlanet::site_key_of);
+	ClassDB::bind_method(D_METHOD("add_carve", "centre", "radius"), &VoxelGeneratorPlanet::add_carve);
+	ClassDB::bind_method(D_METHOD("clear_carves"), &VoxelGeneratorPlanet::clear_carves);
+	ClassDB::bind_method(D_METHOD("get_carve_count"), &VoxelGeneratorPlanet::get_carve_count);
+	ClassDB::bind_static_method("VoxelGeneratorPlanet", D_METHOD("get_carve_box", "centre", "radius"), &VoxelGeneratorPlanet::get_carve_box);
 	ClassDB::bind_static_method("VoxelGeneratorPlanet", D_METHOD("make_site_transform", "field", "key", "resolution", "voxels_across", "voxels_below"),
 			&VoxelGeneratorPlanet::make_site_transform);
 
